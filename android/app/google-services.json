@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "99824052081",
+    "project_id": "btsauth-a7ee4",
+    "storage_bucket": "btsauth-a7ee4.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:99824052081:android:74fcc09413f926c0dc38d0",
+        "android_client_info": {
+          "package_name": "com.exemple.mobile"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDj5Pd0MQF8fIsGq5CvOiJeUBw6TqIycFQ"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

@@ -3,7 +3,8 @@ import '../../../core/res/styles.dart';
 
 class AudioPlayerScreen extends StatefulWidget {
   final String title;
-  const AudioPlayerScreen({super.key, required this.title});
+  final String url;
+  const AudioPlayerScreen({super.key, required this.title, required this.url});
 
   @override
   State<AudioPlayerScreen> createState() => _AudioPlayerScreenState();

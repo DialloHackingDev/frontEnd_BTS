@@ -1,9 +1,14 @@
 import 'package:flutter/material.dart';
+import 'package:hive_flutter/hive_flutter.dart';
 import 'core/res/styles.dart';
+import 'core/storage/local_storage_service.dart';
 import 'core/widgets/main_layout.dart';
+import 'features/auth/screens/login_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await Hive.initFlutter();
+  await LocalStorageService().init();
   runApp(const MyApp());
 }
 
@@ -12,11 +17,14 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final storage = LocalStorageService();
+    final bool isLoggedIn = storage.getToken() != null;
+
     return MaterialApp(
       title: 'BTS Mobile App',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.darkTheme,
-      home: const MainLayout(),
+      home: isLoggedIn ? const MainLayout() : const LoginScreen(),
     );
   }
 }

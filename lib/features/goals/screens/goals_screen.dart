@@ -15,6 +15,7 @@ class _GoalsScreenState extends State<GoalsScreen> {
   final ApiService _apiService = ApiService();
   List<Goal> _goals = [];
   bool _isLoading = true;
+  String? _errorMessage;
   int _activeFilter = 0; // 0 for En cours, 1 for Terminés
 
   @override
@@ -24,18 +25,31 @@ class _GoalsScreenState extends State<GoalsScreen> {
   }
 
   Future<void> _fetchGoals() async {
-    setState(() => _isLoading = true);
+    if (mounted) setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+    
     try {
       final response = await _apiService.get('/goals');
       if (response.statusCode == 200) {
         final List<dynamic> data = jsonDecode(response.body);
-        setState(() {
-          _goals = data.map((json) => Goal.fromJson(json)).toList();
-          _isLoading = false;
-        });
+        if (mounted) {
+          setState(() {
+            _goals = data.map((json) => Goal.fromJson(json)).toList();
+            _isLoading = false;
+          });
+        }
       }
     } catch (e) {
-      setState(() => _isLoading = false);
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+          if (_goals.isEmpty) {
+            _errorMessage = 'Connexion requise pour la première synchronisation.';
+          }
+        });
+      }
     }
   }
 
@@ -78,16 +92,23 @@ class _GoalsScreenState extends State<GoalsScreen> {
             // Goals List
             _isLoading 
               ? const Center(child: CircularProgressIndicator(color: AppColors.gold))
-              : ListView.separated(
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  itemCount: _goals.length,
-                  separatorBuilder: (_, __) => const SizedBox(height: 16),
-                  itemBuilder: (context, index) {
-                    final goal = _goals[index];
-                    return _buildGoalCard(goal);
-                  },
-                ),
+              : _errorMessage != null
+                  ? Center(
+                      child: Padding(
+                        padding: const EdgeInsets.only(top: 50),
+                        child: Text(_errorMessage!, style: const TextStyle(color: AppColors.grey)),
+                      ),
+                    )
+                  : ListView.separated(
+                      shrinkWrap: true,
+                      physics: const NeverScrollableScrollPhysics(),
+                      itemCount: _goals.length,
+                      separatorBuilder: (_, __) => const SizedBox(height: 16),
+                      itemBuilder: (context, index) {
+                        final goal = _goals[index];
+                        return _buildGoalCard(goal);
+                      },
+                    ),
           ],
         ),
       ),

@@ -3,7 +3,8 @@ import '../../../core/res/styles.dart';
 
 class PdfViewerScreen extends StatefulWidget {
   final String title;
-  const PdfViewerScreen({super.key, required this.title});
+  final String url;
+  const PdfViewerScreen({super.key, required this.title, required this.url});
 
   @override
   State<PdfViewerScreen> createState() => _PdfViewerScreenState();

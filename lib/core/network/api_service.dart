@@ -1,16 +1,13 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
-import 'package:firebase_auth/firebase_auth.dart';
+import '../storage/local_storage_service.dart';
 
 class ApiService {
-  // NOTE: Utilisez '10.0.2.2' pour l'émulateur Android vers localhost
-  static const String baseUrl = 'http://10.0.2.2:3000';
-
-  final FirebaseAuth _auth = FirebaseAuth.instance;
+  static const String baseUrl = 'http://localhost:3000';
+  final LocalStorageService _storage = LocalStorageService();
 
   Future<Map<String, String>> _getHeaders() async {
-    final user = _auth.currentUser;
-    final token = await user?.getIdToken();
+    final token = _storage.getToken();
     
     return {
       'Content-Type': 'application/json',
@@ -19,8 +16,38 @@ class ApiService {
   }
 
   Future<http.Response> get(String endpoint) async {
-    final headers = await _getHeaders();
-    return http.get(Uri.parse('$baseUrl$endpoint'), headers: headers);
+    try {
+      final headers = await _getHeaders();
+      final response = await http.get(Uri.parse('$baseUrl$endpoint'), headers: headers).timeout(const Duration(seconds: 5));
+
+      // Sauvegarde automatique dans le cache si succès
+      if (response.statusCode == 200) {
+        _cacheData(endpoint, response.body);
+      }
+      
+      return response;
+    } catch (e) {
+      // Si hors-ligne ou erreur réseau, on tente de récupérer le cache
+      final cachedData = _getCachedData(endpoint);
+      if (cachedData != null) {
+        return http.Response(jsonEncode(cachedData), 200);
+      }
+      rethrow; // Si pas de cache non plus, on laisse l'erreur remonter
+    }
+  }
+
+  void _cacheData(String endpoint, String body) {
+    final dynamic data = jsonDecode(body);
+    if (endpoint == '/dashboard/stats') _storage.saveDashboard(data);
+    if (endpoint == '/goals') _storage.saveGoals(data);
+    if (endpoint == '/library') _storage.saveLibrary(data);
+  }
+
+  dynamic _getCachedData(String endpoint) {
+    if (endpoint == '/dashboard/stats') return _storage.getDashboard();
+    if (endpoint == '/goals') return _storage.getGoals();
+    if (endpoint == '/library') return _storage.getLibrary();
+    return null;
   }
 
   Future<http.Response> post(String endpoint, Map<String, dynamic> data) async {

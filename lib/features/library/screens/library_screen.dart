@@ -1,5 +1,10 @@
 import 'package:flutter/material.dart';
+import 'dart:convert';
 import '../../../core/res/styles.dart';
+import '../../../core/network/api_service.dart';
+import '../../../models/library_item.dart';
+import './pdf_viewer_screen.dart';
+import './audio_player_screen.dart';
 
 class LibraryScreen extends StatefulWidget {
   const LibraryScreen({super.key});
@@ -9,147 +14,131 @@ class LibraryScreen extends StatefulWidget {
 }
 
 class _LibraryScreenState extends State<LibraryScreen> {
+  final ApiService _apiService = ApiService();
+  List<LibraryItem> _items = [];
+  bool _isLoading = true;
+  String? _errorMessage;
   int _activeFilter = 0; // 0: Tous, 1: PDF, 2: Audio, 3: Vidéo
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchLibrary();
+  }
+
+  Future<void> _fetchLibrary() async {
+    if (mounted) setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+    
+    try {
+      final response = await _apiService.get('/library');
+      if (response.statusCode == 200) {
+        final List<dynamic> data = jsonDecode(response.body);
+        if (mounted) {
+          setState(() {
+            _items = data.map((json) => LibraryItem.fromJson(json)).toList();
+            _isLoading = false;
+          });
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+          if (_items.isEmpty) {
+            _errorMessage = 'Connexion requise pour la première fois.';
+          }
+        });
+      }
+    }
+  }
+
+  List<LibraryItem> get _filteredItems {
+    if (_activeFilter == 0) return _items;
+    String typeFilter = _activeFilter == 1 ? 'pdf' : (_activeFilter == 2 ? 'audio' : 'video');
+    return _items.where((item) => item.type == typeFilter).toList();
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        leading: const Padding(
-          padding: EdgeInsets.all(8.0),
-          child: CircleAvatar(
-            backgroundImage: NetworkImage('https://via.placeholder.com/150'),
-          ),
-        ),
         title: const Text('BORN TO SUCCESS'),
         actions: [
-          IconButton(onPressed: () {}, icon: const Icon(Icons.notifications_none_rounded)),
+          IconButton(onPressed: _fetchLibrary, icon: const Icon(Icons.refresh_rounded)),
         ],
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Search Bar
-            Container(
-              decoration: BoxDecoration(
-                color: AppColors.darkBlue,
-                borderRadius: BorderRadius.circular(16),
-              ),
-              child: const TextField(
-                decoration: InputDecoration(
-                  hintText: 'Rechercher une ressource...',
-                  prefixIcon: Icon(Icons.search, color: AppColors.grey),
-                  border: InputBorder.none,
-                  enabledBorder: InputBorder.none,
-                  focusedBorder: InputBorder.none,
-                ),
-              ),
-            ),
-            const SizedBox(height: 25),
-            
-            // Filter Chips
-            SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: Row(
-                children: [
-                  _buildFilterChip(0, 'Tous'),
-                  const SizedBox(width: 10),
-                  _buildFilterChip(1, 'PDF'),
-                  const SizedBox(width: 10),
-                  _buildFilterChip(2, 'Audio'),
-                  const SizedBox(width: 10),
-                  _buildFilterChip(3, 'Vidéo'),
-                ],
-              ),
-            ),
-            const SizedBox(height: 30),
-            
-            const Text(
-              'Ressources à la une',
-              style: TextStyle(color: AppColors.white, fontSize: 22, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 20),
-            
-            // Featured Resource Card (Masterclass)
-            Container(
-              width: double.infinity,
-              height: 200,
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(24),
-                image: const DecorationImage(
-                  image: NetworkImage('https://images.unsplash.com/photo-1557804506-669a67965ba0?auto=format&fit=crop&q=80&w=1074'),
-                  fit: BoxFit.cover,
-                  colorFilter: ColorFilter.mode(Colors.black45, BlendMode.darken),
-                ),
-              ),
-              child: Padding(
-                padding: const EdgeInsets.all(20.0),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisAlignment: MainAxisAlignment.end,
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: AppColors.gold,
-                        borderRadius: BorderRadius.circular(6),
-                      ),
-                      child: const Text('MASTERCLASS', style: TextStyle(color: AppColors.navy, fontWeight: FontWeight.bold, fontSize: 10)),
-                    ),
-                    const SizedBox(height: 8),
-                    const Text(
-                      'Psychologie de\nl\'Investissement',
-                      style: TextStyle(color: AppColors.white, fontSize: 24, fontWeight: FontWeight.bold),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            
-            const SizedBox(height: 35),
-            
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      body: _isLoading 
+        ? const Center(child: CircularProgressIndicator(color: AppColors.gold))
+        : SingleChildScrollView(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text(
-                  'Ma Bibliothèque',
-                  style: TextStyle(color: AppColors.white, fontSize: 20, fontWeight: FontWeight.bold),
+                // Search Bar
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  decoration: BoxDecoration(color: AppColors.darkBlue, borderRadius: BorderRadius.circular(16)),
+                  child: const TextField(
+                    style: TextStyle(color: AppColors.white),
+                    decoration: InputDecoration(
+                      hintText: 'Rechercher une ressource...',
+                      hintStyle: TextStyle(color: AppColors.grey),
+                      prefixIcon: Icon(Icons.search, color: AppColors.grey),
+                      border: InputBorder.none,
+                    ),
+                  ),
                 ),
-                TextButton(
-                  onPressed: () {},
-                  child: const Text('VOIR TOUT >', style: TextStyle(color: AppColors.gold, fontSize: 12)),
+                const SizedBox(height: 25),
+                
+                // Filter Chips
+                SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(
+                    children: [
+                      _buildFilterChip(0, 'Tous'),
+                      const SizedBox(width: 10),
+                      _buildFilterChip(1, 'PDF'),
+                      const SizedBox(width: 10),
+                      _buildFilterChip(2, 'Audio'),
+                      const SizedBox(width: 10),
+                      _buildFilterChip(3, 'Vidéo'),
+                    ],
+                  ),
                 ),
+                const SizedBox(height: 30),
+                
+                if (_errorMessage != null)
+                  Center(
+                    child: Padding(
+                      padding: const EdgeInsets.only(top: 50),
+                      child: Text(_errorMessage!, style: const TextStyle(color: AppColors.grey)),
+                    ),
+                  )
+                else if (_filteredItems.isEmpty && !_isLoading)
+                  const Center(
+                    child: Padding(
+                      padding: EdgeInsets.only(top: 50),
+                      child: Text('Aucune ressource trouvée.', style: TextStyle(color: AppColors.grey)),
+                    ),
+                  ),
+
+                if (_errorMessage == null)
+                  ListView.separated(
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    itemCount: _filteredItems.length,
+                    separatorBuilder: (_, __) => const SizedBox(height: 15),
+                    itemBuilder: (context, index) {
+                      final item = _filteredItems[index];
+                      return _buildLibraryCard(item);
+                    },
+                  ),
               ],
             ),
-            const SizedBox(height: 15),
-            
-            // Library List
-            _buildLibraryCard(
-              title: 'Négociation de...',
-              subtitle: 'Série Audio • 12 MB',
-              type: 'audio',
-              isAction: true,
-              actionLabel: 'LECTURE',
-            ),
-            const SizedBox(height: 15),
-            _buildLibraryCard(
-              title: 'Guide de la Performance 2...',
-              subtitle: 'TÉLÉCHARGÉ',
-              type: 'pdf',
-              isStatus: true,
-            ),
-            const SizedBox(height: 15),
-            _buildLibraryCard(
-              title: 'Modèle de Business Plan',
-              subtitle: 'Document • 450 KB',
-              type: 'pdf',
-              isDownload: true,
-            ),
-          ],
-        ),
-      ),
+          ),
     );
   }
 
@@ -165,81 +154,64 @@ class _LibraryScreenState extends State<LibraryScreen> {
         ),
         child: Text(
           label,
-          style: TextStyle(
-            color: isActive ? AppColors.navy : AppColors.grey,
-            fontWeight: FontWeight.bold,
-          ),
+          style: TextStyle(color: isActive ? AppColors.navy : AppColors.grey, fontWeight: FontWeight.bold),
         ),
       ),
     );
   }
 
-  Widget _buildLibraryCard({
-    required String title,
-    required String subtitle,
-    required String type,
-    bool isAction = false,
-    String actionLabel = '',
-    bool isStatus = false,
-    bool isDownload = false,
-  }) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: AppColors.darkBlue,
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: Row(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: AppColors.white.withOpacity(0.05),
-              borderRadius: BorderRadius.circular(12),
+  Widget _buildLibraryCard(LibraryItem item) {
+    return GestureDetector(
+      onTap: () {
+        if (item.type == 'pdf') {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => PdfViewerScreen(
+                title: item.title,
+                url: item.url.startsWith('http') ? item.url : '${ApiService.baseUrl}${item.url}',
+              ),
             ),
-            child: Icon(
-              type == 'pdf' ? Icons.picture_as_pdf_rounded : Icons.audiotrack_rounded,
-              color: AppColors.gold,
+          );
+        } else if (item.type == 'audio') {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => AudioPlayerScreen(
+                title: item.title,
+                url: item.url.startsWith('http') ? item.url : '${ApiService.baseUrl}${item.url}',
+              ),
             ),
-          ),
-          const SizedBox(width: 16),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: const TextStyle(color: AppColors.white, fontSize: 16, fontWeight: FontWeight.bold),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  subtitle,
-                  style: TextStyle(
-                    color: isStatus ? AppColors.gold : AppColors.grey,
-                    fontSize: 12,
-                    fontWeight: isStatus ? FontWeight.bold : FontWeight.normal,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          if (isAction)
+          );
+        }
+      },
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(color: AppColors.darkBlue, borderRadius: BorderRadius.circular(16)),
+        child: Row(
+          children: [
             Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              decoration: BoxDecoration(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(color: AppColors.white.withOpacity(0.05), borderRadius: BorderRadius.circular(12)),
+              child: Icon(
+                item.type == 'pdf' ? Icons.picture_as_pdf_rounded : Icons.audiotrack_rounded,
                 color: AppColors.gold,
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Text(
-                actionLabel,
-                style: const TextStyle(color: AppColors.navy, fontWeight: FontWeight.bold, fontSize: 12),
               ),
             ),
-          if (isDownload)
-            const Icon(Icons.download_for_offline_rounded, color: AppColors.grey),
-          if (isStatus)
-            const Icon(Icons.more_vert_rounded, color: AppColors.grey),
-        ],
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(item.title, style: const TextStyle(color: AppColors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 4),
+                  Text(item.type.toUpperCase(), style: const TextStyle(color: AppColors.grey, fontSize: 10)),
+                ],
+              ),
+            ),
+            const Icon(Icons.play_circle_fill_rounded, color: AppColors.gold, size: 30),
+          ],
+        ),
       ),
     );
   }
