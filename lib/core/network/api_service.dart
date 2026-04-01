@@ -1,9 +1,10 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import '../storage/local_storage_service.dart';
+import '../res/constants.dart';
 
 class ApiService {
-  static const String baseUrl = 'http://localhost:3000';
+  static String get baseUrl => AppConstants.apiBaseUrl;
   final LocalStorageService _storage = LocalStorageService();
 
   Future<Map<String, String>> _getHeaders() async {
@@ -71,5 +72,19 @@ class ApiService {
   Future<http.Response> delete(String endpoint) async {
     final headers = await _getHeaders();
     return http.delete(Uri.parse('$baseUrl$endpoint'), headers: headers);
+  }
+
+  Future<http.StreamedResponse> uploadFile(String endpoint, String filePath, String title) async {
+    final token = _storage.getToken();
+    final request = http.MultipartRequest('POST', Uri.parse('$baseUrl$endpoint'));
+    
+    request.headers.addAll({
+      'Authorization': 'Bearer $token',
+    });
+
+    request.fields['title'] = title;
+    request.files.add(await http.MultipartFile.fromPath('file', filePath));
+
+    return request.send();
   }
 }

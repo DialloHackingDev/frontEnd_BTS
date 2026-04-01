@@ -5,6 +5,8 @@ import '../../../core/network/api_service.dart';
 import '../../../models/library_item.dart';
 import './pdf_viewer_screen.dart';
 import './audio_player_screen.dart';
+import '../../admin/screens/library_upload_screen.dart';
+import '../../../core/storage/local_storage_service.dart';
 
 class LibraryScreen extends StatefulWidget {
   const LibraryScreen({super.key});
@@ -19,10 +21,12 @@ class _LibraryScreenState extends State<LibraryScreen> {
   bool _isLoading = true;
   String? _errorMessage;
   int _activeFilter = 0; // 0: Tous, 1: PDF, 2: Audio, 3: Vidéo
+  String _userRole = 'USER';
 
   @override
   void initState() {
     super.initState();
+    _userRole = LocalStorageService().getUserRole();
     _fetchLibrary();
   }
 
@@ -139,6 +143,19 @@ class _LibraryScreenState extends State<LibraryScreen> {
               ],
             ),
           ),
+      floatingActionButton: _userRole == 'ADMIN' 
+        ? FloatingActionButton(
+            backgroundColor: AppColors.gold,
+            onPressed: () async {
+              final result = await Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const LibraryUploadScreen()),
+              );
+              if (result == true) _fetchLibrary();
+            },
+            child: const Icon(Icons.add, color: AppColors.navy),
+          )
+        : null,
     );
   }
 

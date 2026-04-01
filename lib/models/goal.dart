@@ -20,9 +20,9 @@ class Goal {
       id: json['id'],
       title: json['title'],
       description: json['description'],
-      status: json['status'],
-      dueDate: json['due_date'] != null ? DateTime.parse(json['due_date']) : null,
-      createdAt: DateTime.parse(json['created_at']),
+      status: json['status'] ?? 'pending',
+      dueDate: json['dueDate'] != null ? DateTime.parse(json['dueDate']) : null,
+      createdAt: DateTime.parse(json['createdAt']),
     );
   }
 

@@ -104,6 +104,62 @@ class _ConferenceScreenState extends State<ConferenceScreen> {
     );
   }
 
+  Future<void> _createRoom() async {
+    final titleController = TextEditingController();
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogCtx) => AlertDialog(
+        backgroundColor: AppColors.navy,
+        title: const Text('CRÉER UNE SALLE', style: TextStyle(color: AppColors.gold, fontWeight: FontWeight.bold)),
+        content: TextField(
+          controller: titleController,
+          autofocus: true,
+          style: const TextStyle(color: AppColors.white),
+          decoration: const InputDecoration(hintText: 'Nom de la conférence *'),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogCtx, false),
+            child: const Text('ANNULER', style: TextStyle(color: AppColors.grey)),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(dialogCtx, true),
+            child: const Text('CRÉER'),
+          ),
+        ],
+      ),
+    ) ?? false;
+
+    if (!confirmed || titleController.text.trim().isEmpty) return;
+
+    try {
+      final response = await _apiService.post('/conferences', {
+        'title': titleController.text.trim(),
+      });
+
+      if (response.statusCode == 201) {
+        final data = jsonDecode(response.body);
+        final roomId = data['roomId'];
+        final Uri url = Uri.parse('https://meet.jit.si/$roomId');
+        if (mounted) {
+          _fetchConferences();
+          if (!await launchUrl(url, mode: LaunchMode.externalApplication)) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Impossible d\'ouvrir Jitsi Meet.')),
+            );
+          }
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Erreur: $e'), backgroundColor: Colors.red),
+        );
+      }
+    }
+  }
+
   Widget _buildCreateRoomAction() {
     return Container(
       padding: const EdgeInsets.all(24),
@@ -112,14 +168,12 @@ class _ConferenceScreenState extends State<ConferenceScreen> {
         children: [
           const Icon(Icons.video_call_rounded, color: AppColors.gold, size: 40),
           const SizedBox(height: 16),
-          const Text('Action de Leadership', style: TextStyle(color: AppColors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+          const Text('Créer une Session', style: TextStyle(color: AppColors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 8),
+          const Text('Lancez votre propre salle Jitsi Meet', style: TextStyle(color: AppColors.grey, fontSize: 13)),
           const SizedBox(height: 16),
           ElevatedButton(
-            onPressed: () {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Fonctionnalité réservée aux Leaders.')),
-              );
-            },
+            onPressed: _createRoom,
             style: ElevatedButton.styleFrom(
               minimumSize: const Size(double.infinity, 50),
               backgroundColor: AppColors.gold,

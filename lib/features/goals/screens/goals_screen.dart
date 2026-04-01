@@ -17,6 +17,8 @@ class _GoalsScreenState extends State<GoalsScreen> {
   bool _isLoading = true;
   String? _errorMessage;
   int _activeFilter = 0; // 0 for En cours, 1 for Terminés
+  final TextEditingController _titleController = TextEditingController();
+  final TextEditingController _descController = TextEditingController();
 
   @override
   void initState() {
@@ -53,6 +55,90 @@ class _GoalsScreenState extends State<GoalsScreen> {
     }
   }
 
+  Future<void> _addGoal(BuildContext dialogContext) async {
+    if (_titleController.text.trim().isEmpty) return;
+
+    try {
+      final response = await _apiService.post('/goals', {
+        'title': _titleController.text.trim(),
+        'description': _descController.text.trim(),
+      });
+
+      if (response.statusCode == 201) {
+        _titleController.clear();
+        _descController.clear();
+        if (mounted) {
+          Navigator.of(dialogContext).pop();
+          _fetchGoals();
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Objectif ajouté avec succès !'),
+              backgroundColor: Colors.green,
+            ),
+          );
+        }
+      } else {
+        debugPrint('Error adding goal: status ${response.statusCode} - ${response.body}');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Erreur lors de la sauvegarde. Vérifiez votre connexion.'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      debugPrint('Error adding goal: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Erreur: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  void _showAddGoalDialog() {
+    showDialog(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: AppColors.navy,
+        title: const Text('NOUVEL OBJECTIF', style: TextStyle(color: AppColors.gold, fontWeight: FontWeight.bold)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: _titleController,
+              autofocus: true,
+              style: const TextStyle(color: AppColors.white),
+              decoration: const InputDecoration(hintText: 'Titre de l\'objectif *'),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: _descController,
+              style: const TextStyle(color: AppColors.white),
+              decoration: const InputDecoration(hintText: 'Description (Optionnel)'),
+              maxLines: 3,
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('ANNULER', style: TextStyle(color: AppColors.grey)),
+          ),
+          ElevatedButton(
+            onPressed: () => _addGoal(dialogContext),
+            child: const Text('AJOUTER'),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -81,39 +167,63 @@ class _GoalsScreenState extends State<GoalsScreen> {
             // Filter Tabs
             Row(
               children: [
-                _buildFilterTab(0, 'En cours', '12'),
+                _buildFilterTab(0, 'En cours', _goals.where((g) => g.status == 'pending').length.toString()),
                 const SizedBox(width: 12),
-                _buildFilterTab(1, 'Terminés', '48'),
+                _buildFilterTab(1, 'Terminés', _goals.where((g) => g.status == 'completed').length.toString()),
               ],
             ),
             
             const SizedBox(height: 30),
             
             // Goals List
-            _isLoading 
-              ? const Center(child: CircularProgressIndicator(color: AppColors.gold))
-              : _errorMessage != null
-                  ? Center(
-                      child: Padding(
-                        padding: const EdgeInsets.only(top: 50),
-                        child: Text(_errorMessage!, style: const TextStyle(color: AppColors.grey)),
+            Builder(builder: (context) {
+              final filteredGoals = _goals.where((g) {
+                return _activeFilter == 0 ? g.status == 'pending' : g.status == 'completed';
+              }).toList();
+
+              if (_isLoading) {
+                return const Center(child: Padding(
+                  padding: EdgeInsets.only(top: 50),
+                  child: CircularProgressIndicator(color: AppColors.gold),
+                ));
+              }
+              if (_errorMessage != null) {
+                return Center(child: Padding(
+                  padding: const EdgeInsets.only(top: 50),
+                  child: Text(_errorMessage!, style: const TextStyle(color: AppColors.grey)),
+                ));
+              }
+              if (filteredGoals.isEmpty) {
+                return Center(child: Padding(
+                  padding: const EdgeInsets.only(top: 50),
+                  child: Column(
+                    children: [
+                      Icon(Icons.emoji_events_outlined, color: AppColors.gold.withOpacity(0.3), size: 64),
+                      const SizedBox(height: 16),
+                      Text(
+                        _activeFilter == 0 ? 'Aucun objectif en cours' : 'Aucun objectif terminé',
+                        style: const TextStyle(color: AppColors.grey),
                       ),
-                    )
-                  : ListView.separated(
-                      shrinkWrap: true,
-                      physics: const NeverScrollableScrollPhysics(),
-                      itemCount: _goals.length,
-                      separatorBuilder: (_, __) => const SizedBox(height: 16),
-                      itemBuilder: (context, index) {
-                        final goal = _goals[index];
-                        return _buildGoalCard(goal);
-                      },
-                    ),
+                    ],
+                  ),
+                ));
+              }
+              return ListView.separated(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                itemCount: filteredGoals.length,
+                separatorBuilder: (_, __) => const SizedBox(height: 16),
+                itemBuilder: (context, index) {
+                  final goal = filteredGoals[index];
+                  return _buildGoalCard(goal);
+                },
+              );
+            }),
           ],
         ),
       ),
       floatingActionButton: FloatingActionButton(
-        onPressed: () {}, // Add Goal Dialog
+        onPressed: _showAddGoalDialog,
         backgroundColor: AppColors.gold,
         child: const Icon(Icons.add, color: AppColors.navy, size: 30),
       ),
@@ -161,84 +271,146 @@ class _GoalsScreenState extends State<GoalsScreen> {
     );
   }
 
+  Future<void> _markGoalCompleted(int goalId) async {
+    try {
+      final response = await _apiService.put('/goals/$goalId', {'status': 'completed'});
+      if (response.statusCode == 200) {
+        _fetchGoals();
+      }
+    } catch (e) {
+      debugPrint('Error updating goal: $e');
+    }
+  }
+
+  Future<void> _deleteGoal(int goalId) async {
+    try {
+      final response = await _apiService.delete('/goals/$goalId');
+      if (response.statusCode == 200) {
+        _fetchGoals();
+      }
+    } catch (e) {
+      debugPrint('Error deleting goal: $e');
+    }
+  }
+
   Widget _buildGoalCard(Goal goal) {
-    return Container(
-      decoration: BoxDecoration(
-        color: AppColors.darkBlue,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppColors.white.withOpacity(0.05)),
+    final bool isCompleted = goal.status == 'completed';
+    return Dismissible(
+      key: Key('goal_${goal.id}'),
+      direction: DismissDirection.endToStart,
+      background: Container(
+        alignment: Alignment.centerRight,
+        padding: const EdgeInsets.only(right: 20),
+        decoration: BoxDecoration(
+          color: Colors.red.withOpacity(0.8),
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: const Icon(Icons.delete_rounded, color: Colors.white),
       ),
-      padding: const EdgeInsets.all(20),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Container(
-                width: 24,
-                height: 24,
-                decoration: BoxDecoration(
-                  border: Border.all(color: AppColors.gold, width: 2),
-                  borderRadius: BorderRadius.circular(6),
-                ),
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      goal.title,
-                      style: const TextStyle(color: AppColors.white, fontSize: 18, fontWeight: FontWeight.bold),
-                    ),
-                  ],
-                ),
-              ),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(
-                  color: AppColors.white.withOpacity(0.05),
-                  borderRadius: BorderRadius.circular(4),
-                ),
-                child: const Text('HIGH PRIORITY', style: TextStyle(color: AppColors.grey, fontSize: 8, fontWeight: FontWeight.bold)),
-              ),
+      confirmDismiss: (_) async {
+        return await showDialog<bool>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            backgroundColor: AppColors.navy,
+            title: const Text('Supprimer ?', style: TextStyle(color: AppColors.white)),
+            content: const Text('Voulez-vous vraiment supprimer cet objectif ?', style: TextStyle(color: AppColors.grey)),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('ANNULER', style: TextStyle(color: AppColors.grey))),
+              ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('SUPPRIMER')),
             ],
           ),
-          const SizedBox(height: 12),
-          Padding(
-            padding: const EdgeInsets.only(left: 40),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+        ) ?? false;
+      },
+      onDismissed: (_) => _deleteGoal(goal.id),
+      child: Container(
+        decoration: BoxDecoration(
+          color: isCompleted ? AppColors.darkBlue.withOpacity(0.5) : AppColors.darkBlue,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: isCompleted ? Colors.green.withOpacity(0.3) : AppColors.white.withOpacity(0.05),
+          ),
+        ),
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
               children: [
-                Text(
-                  goal.description ?? 'No description provided.',
-                  style: const TextStyle(color: AppColors.grey, fontSize: 14),
+                GestureDetector(
+                  onTap: isCompleted ? null : () => _markGoalCompleted(goal.id),
+                  child: Container(
+                    width: 24,
+                    height: 24,
+                    decoration: BoxDecoration(
+                      color: isCompleted ? Colors.green : Colors.transparent,
+                      border: Border.all(
+                        color: isCompleted ? Colors.green : AppColors.gold,
+                        width: 2,
+                      ),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: isCompleted
+                        ? const Icon(Icons.check, size: 14, color: Colors.white)
+                        : null,
+                  ),
                 ),
-                const SizedBox(height: 16),
-                Row(
-                  children: [
-                    const Icon(Icons.calendar_today_outlined, color: AppColors.grey, size: 14),
-                    const SizedBox(width: 8),
-                    const Text('Sept 24, 2024', style: TextStyle(color: AppColors.grey, fontSize: 12)),
-                    const Spacer(),
-                    const CircleAvatar(radius: 10, child: Text('JD', style: TextStyle(fontSize: 8))),
-                    const SizedBox(width: -4),
-                    const CircleAvatar(radius: 10, backgroundColor: AppColors.gold, child: Text('+2', style: TextStyle(fontSize: 8, color: AppColors.navy))),
-                  ],
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Text(
+                    goal.title,
+                    style: TextStyle(
+                      color: isCompleted ? AppColors.grey : AppColors.white,
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      decoration: isCompleted ? TextDecoration.lineThrough : null,
+                    ),
+                  ),
                 ),
-                const SizedBox(height: 16),
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(10),
-                  child: LinearProgressIndicator(
-                    value: 0.65,
-                    backgroundColor: AppColors.navy,
-                    valueColor: const AlwaysStoppedAnimation<Color>(AppColors.gold),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: isCompleted ? Colors.green.withOpacity(0.1) : AppColors.gold.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Text(
+                    isCompleted ? 'TERMINÉ' : 'EN COURS',
+                    style: TextStyle(
+                      color: isCompleted ? Colors.green : AppColors.gold,
+                      fontSize: 8,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                 ),
               ],
             ),
-          ),
-        ],
+            if (goal.description != null && goal.description!.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              Padding(
+                padding: const EdgeInsets.only(left: 40),
+                child: Text(
+                  goal.description!,
+                  style: const TextStyle(color: AppColors.grey, fontSize: 14),
+                ),
+              ),
+            ],
+            const SizedBox(height: 12),
+            Padding(
+              padding: const EdgeInsets.only(left: 40),
+              child: Row(
+                children: [
+                  const Icon(Icons.calendar_today_outlined, color: AppColors.grey, size: 14),
+                  const SizedBox(width: 8),
+                  Text(
+                    goal.dueDate != null
+                        ? 'Échéance: ${goal.dueDate!.day}/${goal.dueDate!.month}/${goal.dueDate!.year}'
+                        : 'Créé le ${goal.createdAt.day}/${goal.createdAt.month}/${goal.createdAt.year}',
+                    style: const TextStyle(color: AppColors.grey, fontSize: 12),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

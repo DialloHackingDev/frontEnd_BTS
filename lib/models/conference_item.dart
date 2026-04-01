@@ -19,10 +19,10 @@ class ConferenceItem {
     return ConferenceItem(
       id: json['id'],
       title: json['title'],
-      roomId: json['room_id'],
-      videoUrl: json['video_url'],
+      roomId: json['roomId'] ?? json['room_id'] ?? '',
+      videoUrl: json['videoUrl'] ?? json['video_url'],
       trainerName: json['user']?['name'],
-      createdAt: DateTime.parse(json['created_at']),
+      createdAt: DateTime.parse(json['createdAt'] ?? json['created_at'] ?? DateTime.now().toIso8601String()),
     );
   }
 }

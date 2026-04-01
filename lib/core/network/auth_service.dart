@@ -1,9 +1,10 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import '../storage/local_storage_service.dart';
+import '../res/constants.dart';
 
 class AuthService {
-  final String _baseUrl = 'http://localhost:3000/auth';
+  String get _baseUrl => '${AppConstants.apiBaseUrl}/auth';
   final LocalStorageService _storage = LocalStorageService();
 
   // Login
