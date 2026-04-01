@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'dart:convert';
 import 'package:open_filex/open_filex.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../../../core/res/styles.dart';
 import '../../../core/network/api_service.dart';
 import '../../../core/services/download_service.dart';
@@ -253,9 +254,22 @@ class _LibraryScreenState extends State<LibraryScreen> {
     final progress = _downloadProgress[item.id];
     final isDownloading = progress != null;
     final fileUrl = item.url.startsWith('http') ? item.url : '${ApiService.baseUrl}${item.url}';
+    final isVideo = item.type == 'video';
+
+    IconData typeIcon = isVideo
+        ? Icons.play_circle_fill_rounded
+        : item.type == 'pdf'
+            ? Icons.picture_as_pdf_rounded
+            : Icons.audiotrack_rounded;
+
+    Color iconColor = isVideo ? Colors.blueAccent : AppColors.gold;
 
     return GestureDetector(
-      onTap: () {
+      onTap: () async {
+        if (isVideo) {
+          await launchUrl(Uri.parse(fileUrl), mode: LaunchMode.externalApplication);
+          return;
+        }
         if (isDownloaded) {
           OpenFilex.open(localPath);
           return;
@@ -274,7 +288,11 @@ class _LibraryScreenState extends State<LibraryScreen> {
         decoration: BoxDecoration(
           color: AppColors.darkBlue,
           borderRadius: BorderRadius.circular(16),
-          border: isDownloaded ? Border.all(color: AppColors.gold.withOpacity(0.3)) : null,
+          border: isVideo
+              ? Border.all(color: Colors.blueAccent.withOpacity(0.3))
+              : isDownloaded
+                  ? Border.all(color: AppColors.gold.withOpacity(0.3))
+                  : null,
         ),
         child: Column(
           children: [
@@ -285,25 +303,39 @@ class _LibraryScreenState extends State<LibraryScreen> {
                   Container(
                     padding: const EdgeInsets.all(12),
                     decoration: BoxDecoration(
-                      color: AppColors.white.withOpacity(0.05),
+                      color: iconColor.withOpacity(0.1),
                       borderRadius: BorderRadius.circular(12),
                     ),
-                    child: Icon(
-                      item.type == 'pdf' ? Icons.picture_as_pdf_rounded : Icons.audiotrack_rounded,
-                      color: AppColors.gold,
-                    ),
+                    child: Icon(typeIcon, color: iconColor),
                   ),
                   const SizedBox(width: 16),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(item.title, style: const TextStyle(color: AppColors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+                        Text(item.title,
+                            style: const TextStyle(color: AppColors.white, fontSize: 15, fontWeight: FontWeight.bold)),
                         const SizedBox(height: 4),
                         Row(
                           children: [
-                            Text(item.type.toUpperCase(), style: const TextStyle(color: AppColors.grey, fontSize: 10)),
-                            if (isDownloaded) ...[
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: iconColor.withOpacity(0.1),
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              child: Text(
+                                isVideo ? 'CONFÉRENCE' : item.type.toUpperCase(),
+                                style: TextStyle(color: iconColor, fontSize: 9, fontWeight: FontWeight.bold),
+                              ),
+                            ),
+                            if (isVideo && item.category != null) ...[
+                              const SizedBox(width: 6),
+                              const Icon(Icons.access_time_rounded, color: AppColors.grey, size: 11),
+                              const SizedBox(width: 2),
+                              Text(item.category!, style: const TextStyle(color: AppColors.grey, fontSize: 10)),
+                            ],
+                            if (!isVideo && isDownloaded) ...[
                               const SizedBox(width: 8),
                               const Icon(Icons.offline_pin_rounded, color: AppColors.gold, size: 12),
                               const SizedBox(width: 2),
@@ -314,15 +346,13 @@ class _LibraryScreenState extends State<LibraryScreen> {
                       ],
                     ),
                   ),
-                  // Bouton download / delete
-                  if (isDownloading)
+                  // Actions
+                  if (isVideo)
+                    const Icon(Icons.open_in_new_rounded, color: Colors.blueAccent, size: 20)
+                  else if (isDownloading)
                     SizedBox(
                       width: 30, height: 30,
-                      child: CircularProgressIndicator(
-                        value: progress,
-                        color: AppColors.gold,
-                        strokeWidth: 2.5,
-                      ),
+                      child: CircularProgressIndicator(value: progress, color: AppColors.gold, strokeWidth: 2.5),
                     )
                   else if (isDownloaded)
                     IconButton(
@@ -337,7 +367,6 @@ class _LibraryScreenState extends State<LibraryScreen> {
                 ],
               ),
             ),
-            // Barre de progression
             if (isDownloading)
               ClipRRect(
                 borderRadius: const BorderRadius.only(

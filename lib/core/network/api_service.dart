@@ -90,6 +90,7 @@ class ApiService {
     final request = http.MultipartRequest('POST', Uri.parse('$baseUrl$endpoint'));
     request.headers.addAll({'Authorization': 'Bearer $token'});
     request.files.add(await http.MultipartFile.fromPath(fieldName, filePath));
-    return request.send();
+    final response = await request.send().timeout(const Duration(seconds: 30));
+    return response;
   }
 }

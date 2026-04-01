@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'dart:convert';
-import 'package:url_launcher/url_launcher.dart';
 import '../../../core/res/styles.dart';
 import '../../../core/network/api_service.dart';
 import '../../../models/conference_item.dart';
+import './jitsi_room_screen.dart';
 
 class ConferenceScreen extends StatefulWidget {
   const ConferenceScreen({super.key});
@@ -18,7 +18,7 @@ class _ConferenceScreenState extends State<ConferenceScreen> with SingleTickerPr
   List<ConferenceItem> _history = [];
   bool _isLoading = true;
   late TabController _tabController;
-  String _historyFilter = 'all'; // 'week', 'month', 'all'
+  String _historyFilter = 'all';
 
   @override
   void initState() {
@@ -74,6 +74,18 @@ class _ConferenceScreenState extends State<ConferenceScreen> with SingleTickerPr
     } catch (e) {
       if (mounted) setState(() => _isLoading = false);
     }
+  }
+
+  void _joinRoom(String roomId, String title) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => JitsiRoomScreen(
+          roomId: roomId,
+          title: title,
+        ),
+      ),
+    );
   }
 
   Future<void> _endConference(ConferenceItem conference) async {
@@ -146,14 +158,9 @@ class _ConferenceScreenState extends State<ConferenceScreen> with SingleTickerPr
       final response = await _apiService.post('/conferences', {'title': titleController.text.trim()});
       if (response.statusCode == 201) {
         final data = jsonDecode(response.body);
-        final Uri url = Uri.parse('https://meet.jit.si/${data['roomId']}');
         if (mounted) {
           _fetchLive();
-          if (!await launchUrl(url, mode: LaunchMode.externalApplication)) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Impossible d\'ouvrir Jitsi Meet.')),
-            );
-          }
+          _joinRoom(data['roomId'], titleController.text.trim());
         }
       }
     } catch (e) {
@@ -356,16 +363,7 @@ class _ConferenceScreenState extends State<ConferenceScreen> with SingleTickerPr
           ),
           const SizedBox(height: 16),
           ElevatedButton(
-            onPressed: () async {
-              final Uri url = Uri.parse('https://meet.jit.si/${conference.roomId}');
-              if (!await launchUrl(url, mode: LaunchMode.externalApplication)) {
-                if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Impossible d\'ouvrir la conférence.')),
-                  );
-                }
-              }
-            },
+            onPressed: () => _joinRoom(conference.roomId, conference.title),
             style: ElevatedButton.styleFrom(
               minimumSize: const Size(double.infinity, 45),
               backgroundColor: isLive ? AppColors.gold : AppColors.darkBlue.withOpacity(0.5),

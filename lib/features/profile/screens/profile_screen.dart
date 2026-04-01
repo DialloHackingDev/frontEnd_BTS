@@ -139,12 +139,17 @@ class _ProfileScreenState extends State<ProfileScreen> {
       final data = jsonDecode(body);
       if (response.statusCode == 200) {
         await _storage.saveUser(data['user']);
-        if (mounted) setState(() => _user = data['user']);
+        if (mounted) {
+          setState(() => _user = data['user']);
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Photo mise à jour ✅'), backgroundColor: Colors.green),
+          );
+        }
       } else {
-        _showError(data['error'] ?? 'Erreur upload.');
+        _showError(data['error'] ?? 'Erreur serveur (${response.statusCode})');
       }
     } catch (e) {
-      _showError('Erreur réseau: $e');
+      _showError('Erreur: ${e.runtimeType} - $e');
     } finally {
       if (mounted) setState(() => _isUploading = false);
     }
@@ -229,14 +234,23 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         child: CircleAvatar(
                           radius: 50,
                           backgroundColor: AppColors.gold.withOpacity(0.15),
-                          backgroundImage: avatarUrl != null
-                              ? NetworkImage(_avatarUrl(avatarUrl))
-                              : null,
                           child: _isUploading
                               ? const CircularProgressIndicator(color: AppColors.gold)
                               : avatarUrl == null
                                   ? const Icon(Icons.person_rounded, color: AppColors.gold, size: 50)
-                                  : null,
+                                  : ClipOval(
+                                      child: Image.network(
+                                        _avatarUrl(avatarUrl),
+                                        width: 100,
+                                        height: 100,
+                                        fit: BoxFit.cover,
+                                        errorBuilder: (_, __, ___) => const Icon(
+                                          Icons.person_rounded,
+                                          color: AppColors.gold,
+                                          size: 50,
+                                        ),
+                                      ),
+                                    ),
                         ),
                       ),
                       Positioned(
