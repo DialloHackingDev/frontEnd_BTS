@@ -43,12 +43,12 @@ class _JitsiRoomScreenState extends State<JitsiRoomScreen> {
     try {
       await _jitsiMeet.join(
         JitsiMeetConferenceOptions(
-          serverURL: 'https://meet.jit.si',
-          room: widget.roomId,
+          room: 'https://meet.jit.si/${widget.roomId}',
           configOverrides: {
             'startWithAudioMuted': false,
             'startWithVideoMuted': false,
             'subject': widget.title,
+            'disableDeepLinking': true,
           },
           featureFlags: {
             'welcomepage.enabled': false,
