@@ -12,6 +12,7 @@ import '../../features/goals/screens/goals_screen.dart';
 import '../../features/library/screens/library_screen.dart';
 import '../../features/conference/screens/conference_screen.dart';
 import '../../features/admin/screens/admin_dashboard_screen.dart';
+import '../../features/profile/screens/profile_screen.dart';
 
 class MainLayout extends StatefulWidget {
   const MainLayout({super.key});
@@ -92,6 +93,7 @@ class _MainLayoutState extends State<MainLayout> {
       const GoalsScreen(),
       const LibraryScreen(),
       const ConferenceScreen(),
+      const ProfileScreen(),
     ];
     if (_userRole == 'ADMIN') {
       pages.add(const AdminDashboardScreen());
@@ -141,7 +143,7 @@ class _MainLayoutState extends State<MainLayout> {
                 onTap: () {
                   Navigator.pop(context); // close drawer
                   // Navigate to admin tab
-                  final adminIndex = 4;
+                  final adminIndex = 5;
                   setState(() => _selectedIndex = adminIndex);
                 },
               ),
@@ -173,6 +175,7 @@ class _MainLayoutState extends State<MainLayout> {
             const BottomNavigationBarItem(icon: Icon(Icons.emoji_events_rounded), label: 'Goals'),
             const BottomNavigationBarItem(icon: Icon(Icons.library_books_rounded), label: 'Library'),
             const BottomNavigationBarItem(icon: Icon(Icons.people_alt_rounded), label: 'Conferences'),
+            const BottomNavigationBarItem(icon: Icon(Icons.person_rounded), label: 'Profil'),
             if (_userRole == 'ADMIN')
               const BottomNavigationBarItem(icon: Icon(Icons.admin_panel_settings_rounded), label: 'Admin'),
           ],

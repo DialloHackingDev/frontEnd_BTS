@@ -16,30 +16,42 @@ class _GoalsScreenState extends State<GoalsScreen> {
   List<Goal> _goals = [];
   bool _isLoading = true;
   String? _errorMessage;
-  int _activeFilter = 0; // 0 for En cours, 1 for Terminés
+  int _activeFilter = 0;
+  int _page = 1;
+  bool _hasMore = true;
+  bool _isLoadingMore = false;
   final TextEditingController _titleController = TextEditingController();
   final TextEditingController _descController = TextEditingController();
 
   @override
   void initState() {
     super.initState();
-    _fetchGoals();
+    _fetchGoals(reset: true);
   }
 
-  Future<void> _fetchGoals() async {
-    if (mounted) setState(() {
-      _isLoading = true;
-      _errorMessage = null;
-    });
-    
+  Future<void> _fetchGoals({bool reset = false}) async {
+    if (reset) {
+      _page = 1;
+      _hasMore = true;
+      _goals = [];
+    }
+    if (!_hasMore) return;
+
+    if (mounted) setState(() => reset ? _isLoading = true : _isLoadingMore = true);
+
     try {
-      final response = await _apiService.get('/goals');
+      final response = await _apiService.get('/goals', queryParams: {'page': '$_page', 'limit': '10'});
       if (response.statusCode == 200) {
-        final List<dynamic> data = jsonDecode(response.body);
+        final data = jsonDecode(response.body);
+        final List<dynamic> items = data['data'] ?? data;
         if (mounted) {
           setState(() {
-            _goals = data.map((json) => Goal.fromJson(json)).toList();
+            _goals.addAll(items.map((json) => Goal.fromJson(json)).toList());
+            _hasMore = _page < (data['totalPages'] ?? 1);
+            _page++;
             _isLoading = false;
+            _isLoadingMore = false;
+            _errorMessage = null;
           });
         }
       }
@@ -47,9 +59,8 @@ class _GoalsScreenState extends State<GoalsScreen> {
       if (mounted) {
         setState(() {
           _isLoading = false;
-          if (_goals.isEmpty) {
-            _errorMessage = 'Connexion requise pour la première synchronisation.';
-          }
+          _isLoadingMore = false;
+          if (_goals.isEmpty) _errorMessage = 'Connexion requise pour la première synchronisation.';
         });
       }
     }
@@ -69,7 +80,7 @@ class _GoalsScreenState extends State<GoalsScreen> {
         _descController.clear();
         if (mounted) {
           Navigator.of(dialogContext).pop();
-          _fetchGoals();
+          _fetchGoals(reset: true);
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
               content: Text('Objectif ajouté avec succès !'),
@@ -211,11 +222,20 @@ class _GoalsScreenState extends State<GoalsScreen> {
               return ListView.separated(
                 shrinkWrap: true,
                 physics: const NeverScrollableScrollPhysics(),
-                itemCount: filteredGoals.length,
+                itemCount: filteredGoals.length + (_hasMore ? 1 : 0),
                 separatorBuilder: (_, __) => const SizedBox(height: 16),
                 itemBuilder: (context, index) {
-                  final goal = filteredGoals[index];
-                  return _buildGoalCard(goal);
+                  if (index == filteredGoals.length) {
+                    return Center(
+                      child: _isLoadingMore
+                        ? const CircularProgressIndicator(color: AppColors.gold)
+                        : TextButton(
+                            onPressed: _fetchGoals,
+                            child: const Text('Charger plus', style: TextStyle(color: AppColors.gold)),
+                          ),
+                    );
+                  }
+                  return _buildGoalCard(filteredGoals[index]);
                 },
               );
             }),
@@ -275,7 +295,7 @@ class _GoalsScreenState extends State<GoalsScreen> {
     try {
       final response = await _apiService.put('/goals/$goalId', {'status': 'completed'});
       if (response.statusCode == 200) {
-        _fetchGoals();
+        _fetchGoals(reset: true);
       }
     } catch (e) {
       debugPrint('Error updating goal: $e');
@@ -286,7 +306,7 @@ class _GoalsScreenState extends State<GoalsScreen> {
     try {
       final response = await _apiService.delete('/goals/$goalId');
       if (response.statusCode == 200) {
-        _fetchGoals();
+        _fetchGoals(reset: true);
       }
     } catch (e) {
       debugPrint('Error deleting goal: $e');

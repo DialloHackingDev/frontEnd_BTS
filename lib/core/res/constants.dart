@@ -4,5 +4,5 @@ class AppConstants {
   // En local: 'http://localhost:3000'
   // En production: 'https://votre-domaine.com/api'
   // =========================================================
-  static const String apiBaseUrl = 'http://localhost:3000';
+  static const String apiBaseUrl = 'http://192.168.1.107:3000';
 }

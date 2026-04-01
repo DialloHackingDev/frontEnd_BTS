@@ -12,104 +12,119 @@ class ConferenceScreen extends StatefulWidget {
   State<ConferenceScreen> createState() => _ConferenceScreenState();
 }
 
-class _ConferenceScreenState extends State<ConferenceScreen> {
+class _ConferenceScreenState extends State<ConferenceScreen> with SingleTickerProviderStateMixin {
   final ApiService _apiService = ApiService();
-  List<ConferenceItem> _conferences = [];
+  List<ConferenceItem> _live = [];
+  List<ConferenceItem> _history = [];
   bool _isLoading = true;
+  late TabController _tabController;
+  String _historyFilter = 'all'; // 'week', 'month', 'all'
 
   @override
   void initState() {
     super.initState();
-    _fetchConferences();
+    _tabController = TabController(length: 2, vsync: this);
+    _tabController.addListener(() {
+      if (_tabController.indexIsChanging) {
+        if (_tabController.index == 1 && _history.isEmpty) {
+          _fetchHistory();
+        }
+      }
+    });
+    _fetchLive();
   }
 
-  Future<void> _fetchConferences() async {
+  @override
+  void dispose() {
+    _tabController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _fetchLive() async {
     setState(() => _isLoading = true);
     try {
       final response = await _apiService.get('/conferences/active');
       if (response.statusCode == 200) {
         final List<dynamic> data = jsonDecode(response.body);
-        setState(() {
-          _conferences = data.map((json) => ConferenceItem.fromJson(json)).toList();
-          _isLoading = false;
-        });
+        if (mounted) {
+          setState(() {
+            _live = data.map((json) => ConferenceItem.fromJson(json)).toList();
+            _isLoading = false;
+          });
+        }
       }
     } catch (e) {
       if (mounted) setState(() => _isLoading = false);
     }
   }
 
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('BORN TO SUCCESS'),
+  Future<void> _fetchHistory() async {
+    setState(() => _isLoading = true);
+    try {
+      final response = await _apiService.get('/conferences/history?filter=$_historyFilter');
+      if (response.statusCode == 200) {
+        final List<dynamic> data = jsonDecode(response.body);
+        if (mounted) {
+          setState(() {
+            _history = data.map((json) => ConferenceItem.fromJson(json)).toList();
+            _isLoading = false;
+          });
+        }
+      }
+    } catch (e) {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _endConference(ConferenceItem conference) async {
+    final videoController = TextEditingController();
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppColors.navy,
+        title: const Text('TERMINER LA SESSION', style: TextStyle(color: AppColors.gold, fontWeight: FontWeight.bold)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text('Lien de l\'enregistrement (optionnel)', style: TextStyle(color: AppColors.grey, fontSize: 13)),
+            const SizedBox(height: 12),
+            TextField(
+              controller: videoController,
+              style: const TextStyle(color: AppColors.white),
+              decoration: const InputDecoration(hintText: 'https://...'),
+            ),
+          ],
+        ),
         actions: [
-          IconButton(onPressed: _fetchConferences, icon: const Icon(Icons.refresh_rounded)),
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('ANNULER', style: TextStyle(color: AppColors.grey))),
+          ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('TERMINER')),
         ],
       ),
-      body: _isLoading 
-        ? const Center(child: CircularProgressIndicator(color: AppColors.gold))
-        : SingleChildScrollView(
-            padding: const EdgeInsets.all(20),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Salles de Conférence',
-                  style: TextStyle(color: AppColors.white, fontSize: 28, fontWeight: FontWeight.bold),
-                ),
-                const SizedBox(height: 8),
-                const Text(
-                  'Rejoignez des sessions en direct ou créez votre espace.',
-                  style: TextStyle(color: AppColors.grey, fontSize: 14),
-                ),
-                
-                const SizedBox(height: 30),
-                
-                // Create Room Button
-                _buildCreateRoomAction(),
-                
-                const SizedBox(height: 40),
-                
-                // Live Status Row
-                const Text(
-                  'En direct maintenant',
-                  style: TextStyle(color: AppColors.white, fontSize: 18, fontWeight: FontWeight.bold),
-                ),
-                const SizedBox(height: 20),
-                
-                if (_conferences.isEmpty && !_isLoading)
-                  const Center(
-                    child: Padding(
-                      padding: EdgeInsets.only(top: 30),
-                      child: Text('Aucune session en cours.', style: TextStyle(color: AppColors.grey)),
-                    ),
-                  ),
+    ) ?? false;
 
-                // Real Conference List
-                ListView.separated(
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  itemCount: _conferences.length,
-                  separatorBuilder: (_, __) => const SizedBox(height: 16),
-                  itemBuilder: (context, index) {
-                    final conference = _conferences[index];
-                    return _buildLiveRoom(conference);
-                  },
-                ),
-              ],
-            ),
-          ),
-    );
+    if (!confirmed) return;
+    try {
+      await _apiService.put('/conferences/${conference.id}/end', {'videoUrl': videoController.text.trim()});
+      if (mounted) {
+        _fetchLive();
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Session terminée et enregistrée ✅'), backgroundColor: Colors.green),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Erreur: $e'), backgroundColor: Colors.red),
+        );
+      }
+    }
   }
 
   Future<void> _createRoom() async {
     final titleController = TextEditingController();
-
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (dialogCtx) => AlertDialog(
+      builder: (ctx) => AlertDialog(
         backgroundColor: AppColors.navy,
         title: const Text('CRÉER UNE SALLE', style: TextStyle(color: AppColors.gold, fontWeight: FontWeight.bold)),
         content: TextField(
@@ -119,14 +134,8 @@ class _ConferenceScreenState extends State<ConferenceScreen> {
           decoration: const InputDecoration(hintText: 'Nom de la conférence *'),
         ),
         actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogCtx, false),
-            child: const Text('ANNULER', style: TextStyle(color: AppColors.grey)),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(dialogCtx, true),
-            child: const Text('CRÉER'),
-          ),
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('ANNULER', style: TextStyle(color: AppColors.grey))),
+          ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('CRÉER')),
         ],
       ),
     ) ?? false;
@@ -134,16 +143,12 @@ class _ConferenceScreenState extends State<ConferenceScreen> {
     if (!confirmed || titleController.text.trim().isEmpty) return;
 
     try {
-      final response = await _apiService.post('/conferences', {
-        'title': titleController.text.trim(),
-      });
-
+      final response = await _apiService.post('/conferences', {'title': titleController.text.trim()});
       if (response.statusCode == 201) {
         final data = jsonDecode(response.body);
-        final roomId = data['roomId'];
-        final Uri url = Uri.parse('https://meet.jit.si/$roomId');
+        final Uri url = Uri.parse('https://meet.jit.si/${data['roomId']}');
         if (mounted) {
-          _fetchConferences();
+          _fetchLive();
           if (!await launchUrl(url, mode: LaunchMode.externalApplication)) {
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(content: Text('Impossible d\'ouvrir Jitsi Meet.')),
@@ -158,6 +163,129 @@ class _ConferenceScreenState extends State<ConferenceScreen> {
         );
       }
     }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('BORN TO SUCCESS'),
+        actions: [
+          IconButton(
+            onPressed: () => _tabController.index == 0 ? _fetchLive() : _fetchHistory(),
+            icon: const Icon(Icons.refresh_rounded),
+          ),
+        ],
+        bottom: TabBar(
+          controller: _tabController,
+          indicatorColor: AppColors.gold,
+          labelColor: AppColors.gold,
+          unselectedLabelColor: AppColors.grey,
+          tabs: const [
+            Tab(text: 'EN DIRECT'),
+            Tab(text: 'HISTORIQUE'),
+          ],
+        ),
+      ),
+      body: TabBarView(
+        controller: _tabController,
+        children: [
+          _buildLiveTab(),
+          _buildHistoryTab(),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLiveTab() {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const SizedBox(height: 10),
+          _buildCreateRoomAction(),
+          const SizedBox(height: 30),
+          const Text('Sessions actives', style: TextStyle(color: AppColors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 16),
+          if (_isLoading && _tabController.index == 0)
+            const Center(child: CircularProgressIndicator(color: AppColors.gold))
+          else if (_live.isEmpty)
+            const Center(
+              child: Padding(
+                padding: EdgeInsets.only(top: 30),
+                child: Text('Aucune session en cours.', style: TextStyle(color: AppColors.grey)),
+              ),
+            )
+          else
+            ListView.separated(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              itemCount: _live.length,
+              separatorBuilder: (_, __) => const SizedBox(height: 16),
+              itemBuilder: (_, i) => _buildConferenceCard(_live[i], isLive: true),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildHistoryTab() {
+    return Column(
+      children: [
+        // Filtres
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
+          child: Row(
+            children: [
+              _buildFilterChip('week', 'Cette semaine'),
+              const SizedBox(width: 8),
+              _buildFilterChip('month', 'Ce mois'),
+              const SizedBox(width: 8),
+              _buildFilterChip('all', 'Tout'),
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
+        Expanded(
+          child: _isLoading && _tabController.index == 1
+            ? const Center(child: CircularProgressIndicator(color: AppColors.gold))
+            : _history.isEmpty
+              ? const Center(child: Text('Aucune conférence dans l\'historique.', style: TextStyle(color: AppColors.grey)))
+              : ListView.separated(
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  itemCount: _history.length,
+                  separatorBuilder: (_, __) => const SizedBox(height: 12),
+                  itemBuilder: (_, i) => _buildConferenceCard(_history[i], isLive: false),
+                ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildFilterChip(String value, String label) {
+    final isActive = _historyFilter == value;
+    return GestureDetector(
+      onTap: () {
+        setState(() => _historyFilter = value);
+        _fetchHistory();
+      },
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        decoration: BoxDecoration(
+          color: isActive ? AppColors.gold : AppColors.darkBlue,
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            color: isActive ? AppColors.navy : AppColors.grey,
+            fontSize: 12,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+      ),
+    );
   }
 
   Widget _buildCreateRoomAction() {
@@ -186,23 +314,47 @@ class _ConferenceScreenState extends State<ConferenceScreen> {
     );
   }
 
-  Widget _buildLiveRoom(ConferenceItem conference) {
+  Widget _buildConferenceCard(ConferenceItem conference, {required bool isLive}) {
     return Container(
       padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(color: AppColors.darkBlue, borderRadius: BorderRadius.circular(16)),
+      decoration: BoxDecoration(
+        color: AppColors.darkBlue,
+        borderRadius: BorderRadius.circular(16),
+        border: isLive ? Border.all(color: AppColors.gold.withOpacity(0.2)) : null,
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            conference.title,
-            style: const TextStyle(color: AppColors.white, fontSize: 18, fontWeight: FontWeight.bold),
+          Row(
+            children: [
+              Expanded(
+                child: Text(conference.title, style: const TextStyle(color: AppColors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+              ),
+              if (isLive)
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(color: Colors.red.withOpacity(0.15), borderRadius: BorderRadius.circular(6)),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.circle, color: Colors.red, size: 8),
+                      SizedBox(width: 4),
+                      Text('LIVE', style: TextStyle(color: Colors.red, fontSize: 10, fontWeight: FontWeight.bold)),
+                    ],
+                  ),
+                ),
+            ],
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 8),
           Text(
             'Animé par ${conference.trainerName ?? "Leader BTS"}',
-            style: const TextStyle(color: AppColors.grey, fontSize: 14),
+            style: const TextStyle(color: AppColors.grey, fontSize: 13),
           ),
-          const SizedBox(height: 20),
+          Text(
+            '${conference.createdAt.day}/${conference.createdAt.month}/${conference.createdAt.year}',
+            style: const TextStyle(color: AppColors.grey, fontSize: 11),
+          ),
+          const SizedBox(height: 16),
           ElevatedButton(
             onPressed: () async {
               final Uri url = Uri.parse('https://meet.jit.si/${conference.roomId}');
@@ -216,11 +368,27 @@ class _ConferenceScreenState extends State<ConferenceScreen> {
             },
             style: ElevatedButton.styleFrom(
               minimumSize: const Size(double.infinity, 45),
-              backgroundColor: AppColors.gold,
+              backgroundColor: isLive ? AppColors.gold : AppColors.darkBlue.withOpacity(0.5),
+              side: isLive ? null : const BorderSide(color: AppColors.gold),
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
             ),
-            child: const Text('REJOINDRE', style: TextStyle(color: AppColors.navy, fontWeight: FontWeight.bold)),
+            child: Text(
+              isLive ? 'REJOINDRE' : 'REVOIR',
+              style: TextStyle(color: isLive ? AppColors.navy : AppColors.gold, fontWeight: FontWeight.bold),
+            ),
           ),
+          if (isLive) ...[
+            const SizedBox(height: 8),
+            OutlinedButton(
+              onPressed: () => _endConference(conference),
+              style: OutlinedButton.styleFrom(
+                minimumSize: const Size(double.infinity, 40),
+                side: const BorderSide(color: Colors.redAccent),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              ),
+              child: const Text('TERMINER & ENREGISTRER', style: TextStyle(color: Colors.redAccent, fontSize: 12, fontWeight: FontWeight.bold)),
+            ),
+          ],
         ],
       ),
     );
