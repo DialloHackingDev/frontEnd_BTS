@@ -82,7 +82,23 @@ class ApiService {
     request.headers.addAll({'Authorization': 'Bearer $token'});
     request.fields['title'] = title;
     request.files.add(await http.MultipartFile.fromPath('file', filePath));
-    return request.send();
+    final response = await request.send().timeout(const Duration(seconds: 120));
+    return response;
+  }
+
+  Future<http.StreamedResponse> uploadFileBytes(
+    String endpoint,
+    List<int> bytes,
+    String filename,
+    String title,
+  ) async {
+    final token = _storage.getToken();
+    final request = http.MultipartRequest('POST', Uri.parse('$baseUrl$endpoint'));
+    request.headers.addAll({'Authorization': 'Bearer $token'});
+    request.fields['title'] = title;
+    request.files.add(http.MultipartFile.fromBytes('file', bytes, filename: filename));
+    final response = await request.send().timeout(const Duration(seconds: 120));
+    return response;
   }
 
   Future<http.StreamedResponse> uploadImage(String endpoint, String filePath, String fieldName) async {

@@ -7,6 +7,7 @@ import '../../features/auth/screens/login_screen.dart';
 import '../res/styles.dart';
 import '../network/api_service.dart';
 import '../storage/local_storage_service.dart';
+import '../services/offline_sync_service.dart';
 import '../../features/dashboard/screens/dashboard_screen.dart';
 import '../../features/goals/screens/goals_screen.dart';
 import '../../features/library/screens/library_screen.dart';
@@ -27,7 +28,9 @@ class _MainLayoutState extends State<MainLayout> {
   String _userEmail = '';
   String _userRole = 'USER';
   bool _isOffline = false;
+  bool _justReconnected = false;
   late StreamSubscription<List<ConnectivityResult>> _connectivitySubscription;
+  final OfflineSyncService _syncService = OfflineSyncService();
 
   @override
   void initState() {
@@ -37,10 +40,29 @@ class _MainLayoutState extends State<MainLayout> {
   }
 
   void _initConnectivity() {
-    _connectivitySubscription = Connectivity().onConnectivityChanged.listen((List<ConnectivityResult> result) {
-      setState(() {
-        _isOffline = result.contains(ConnectivityResult.none);
-      });
+    _connectivitySubscription = Connectivity().onConnectivityChanged.listen((List<ConnectivityResult> result) async {
+      final wasOffline = _isOffline;
+      final isNowOffline = result.contains(ConnectivityResult.none);
+
+      if (mounted) setState(() => _isOffline = isNowOffline);
+
+      // Retour du réseau → sync automatique
+      if (wasOffline && !isNowOffline) {
+        if (mounted) setState(() => _justReconnected = true);
+        final synced = await _syncService.syncPendingActions();
+        if (mounted) {
+          setState(() => _justReconnected = false);
+          if (synced > 0) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('✅ $synced action(s) synchronisée(s) avec le serveur'),
+                backgroundColor: Colors.green,
+                duration: const Duration(seconds: 3),
+              ),
+            );
+          }
+        }
+      }
     });
   }
 
@@ -162,7 +184,33 @@ class _MainLayoutState extends State<MainLayout> {
           ],
         ),
       ),
-      body: _pages[_selectedIndex],
+      body: Column(
+        children: [
+          // Bannière réseau globale
+          AnimatedContainer(
+            duration: const Duration(milliseconds: 300),
+            height: (_isOffline || _justReconnected) ? 36 : 0,
+            color: _justReconnected ? Colors.green.withOpacity(0.9) : Colors.orange.withOpacity(0.9),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(
+                  _justReconnected ? Icons.sync_rounded : Icons.wifi_off_rounded,
+                  color: Colors.white, size: 14,
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  _justReconnected
+                      ? 'Reconnecté — synchronisation en cours...'
+                      : 'Mode hors ligne — données en cache',
+                  style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w500),
+                ),
+              ],
+            ),
+          ),
+          Expanded(child: _pages[_selectedIndex]),
+        ],
+      ),
       bottomNavigationBar: Container(
         decoration: BoxDecoration(
           border: Border(

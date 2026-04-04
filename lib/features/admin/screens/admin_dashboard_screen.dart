@@ -5,7 +5,7 @@ import '../../../core/res/styles.dart';
 import '../../../core/network/api_service.dart';
 import './user_management_screen.dart';
 import './library_upload_screen.dart';
-import './conference_videos_screen.dart';
+import './content_management_screen.dart';
 
 class AdminDashboardScreen extends StatefulWidget {
   const AdminDashboardScreen({super.key});
@@ -107,7 +107,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
         ElevatedButton.icon(
           onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const UserManagementScreen())),
           icon: const Icon(Icons.manage_accounts_rounded, size: 18),
-          label: const Text('Gérer Utilisateurs'),
+          label: const Text('Utilisateurs'),
           style: ElevatedButton.styleFrom(
             backgroundColor: AppColors.gold, foregroundColor: AppColors.navy,
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -115,25 +115,14 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
           ),
         ),
         ElevatedButton.icon(
-          onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const LibraryUploadScreen())),
-          icon: const Icon(Icons.library_add_rounded, size: 18),
-          label: const Text('Ajouter Contenu'),
+          onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ContentManagementScreen())),
+          icon: const Icon(Icons.library_books_rounded, size: 18),
+          label: const Text('Contenu'),
           style: ElevatedButton.styleFrom(
             backgroundColor: AppColors.darkBlue, foregroundColor: AppColors.gold,
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
             side: const BorderSide(color: AppColors.gold, width: 1),
-          ),
-        ),
-        ElevatedButton.icon(
-          onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ConferenceVideosScreen())),
-          icon: const Icon(Icons.videocam_rounded, size: 18),
-          label: const Text('Vidéos Conférences'),
-          style: ElevatedButton.styleFrom(
-            backgroundColor: AppColors.darkBlue, foregroundColor: Colors.blueAccent,
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-            side: const BorderSide(color: Colors.blueAccent, width: 1),
           ),
         ),
       ],

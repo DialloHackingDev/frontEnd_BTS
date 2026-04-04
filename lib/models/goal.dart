@@ -21,8 +21,10 @@ class Goal {
       title: json['title'],
       description: json['description'],
       status: json['status'] ?? 'pending',
-      dueDate: json['dueDate'] != null ? DateTime.parse(json['dueDate']) : null,
-      createdAt: DateTime.parse(json['createdAt']),
+      dueDate: (json['dueDate'] ?? json['due_date']) != null
+          ? DateTime.parse(json['dueDate'] ?? json['due_date'])
+          : null,
+      createdAt: DateTime.parse(json['createdAt'] ?? json['created_at'] ?? DateTime.now().toIso8601String()),
     );
   }
 

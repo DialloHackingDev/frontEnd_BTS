@@ -1,9 +1,13 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_pdfview/flutter_pdfview.dart';
+import 'package:dio/dio.dart';
+import 'package:path_provider/path_provider.dart';
 import '../../../core/res/styles.dart';
 
 class PdfViewerScreen extends StatefulWidget {
   final String title;
   final String url;
+
   const PdfViewerScreen({super.key, required this.title, required this.url});
 
   @override
@@ -11,122 +15,111 @@ class PdfViewerScreen extends StatefulWidget {
 }
 
 class _PdfViewerScreenState extends State<PdfViewerScreen> {
+  String? _localPath;
+  bool _isLoading = true;
+  bool _hasError = false;
+  String _errorMsg = '';
+  int _totalPages = 0;
+  int _currentPage = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _downloadAndLoad();
+  }
+
+  Future<void> _downloadAndLoad() async {
+    setState(() { _isLoading = true; _hasError = false; });
+    try {
+      final dir = await getTemporaryDirectory();
+      final fileName = 'bts_pdf_${DateTime.now().millisecondsSinceEpoch}.pdf';
+      final filePath = '${dir.path}/$fileName';
+
+      await Dio().download(widget.url, filePath);
+
+      if (mounted) setState(() { _localPath = filePath; _isLoading = false; });
+    } catch (e) {
+      if (mounted) setState(() { _hasError = true; _errorMsg = e.toString(); _isLoading = false; });
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.navy,
       appBar: AppBar(
+        backgroundColor: AppColors.navy,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back_rounded, color: AppColors.gold),
           onPressed: () => Navigator.pop(context),
         ),
-        title: Text(
-          widget.title,
-          style: const TextStyle(color: AppColors.white, fontSize: 18),
-        ),
+        title: Text(widget.title,
+            style: const TextStyle(color: AppColors.white, fontSize: 16),
+            overflow: TextOverflow.ellipsis),
         actions: [
-          IconButton(onPressed: () {}, icon: const Icon(Icons.more_vert_rounded, color: AppColors.gold)),
+          if (_totalPages > 0)
+            Padding(
+              padding: const EdgeInsets.only(right: 16),
+              child: Center(
+                child: Text('$_currentPage / $_totalPages',
+                    style: const TextStyle(color: AppColors.gold, fontSize: 13)),
+              ),
+            ),
         ],
       ),
-      body: Stack(
-        children: [
-          // Simulated PDF Page
-          Center(
-            child: Container(
-              margin: const EdgeInsets.symmetric(horizontal: 24, vertical: 40),
-              padding: const EdgeInsets.all(40),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(4),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.5),
-                    blurRadius: 20,
-                  ),
-                ],
-              ),
+      body: _hasError
+          ? Center(
               child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  const Text(
-                    'BORN TO SUCCESS',
-                    style: TextStyle(color: Colors.black, fontSize: 10, fontWeight: FontWeight.bold),
-                  ),
-                  const Text(
-                    'Q4 EXECUTIVE STRATEGY BRIEF',
-                    style: TextStyle(color: Colors.grey, fontSize: 8),
-                  ),
-                  const SizedBox(height: 100),
-                  const Text(
-                    'Architectural\nGrowth &\nOperational\nExcellence',
-                    style: TextStyle(
-                      color: AppColors.navy,
-                      fontSize: 32,
-                      fontWeight: FontWeight.bold,
-                      height: 1.1,
-                    ),
-                  ),
-                  const SizedBox(height: 20),
-                  Container(
-                    width: 60,
-                    height: 4,
-                    color: AppColors.gold,
-                  ),
-                  const SizedBox(height: 40),
-                  const Text(
-                    'The transition from linear growth to exponential scaling requires a fundamental shift in institutional architecture. Our "Prestigious Architect" model prioritizes structural integrity over rapid, uncalculated expansion.',
-                    style: TextStyle(color: Colors.black54, fontSize: 12),
+                  const Icon(Icons.error_outline_rounded, color: Colors.redAccent, size: 60),
+                  const SizedBox(height: 16),
+                  const Text('Impossible de charger le PDF.',
+                      style: TextStyle(color: AppColors.white, fontSize: 16)),
+                  const SizedBox(height: 8),
+                  Text(_errorMsg,
+                      style: const TextStyle(color: AppColors.grey, fontSize: 11),
+                      textAlign: TextAlign.center),
+                  const SizedBox(height: 24),
+                  ElevatedButton.icon(
+                    onPressed: _downloadAndLoad,
+                    icon: const Icon(Icons.refresh_rounded, color: AppColors.navy),
+                    label: const Text('RÉESSAYER',
+                        style: TextStyle(color: AppColors.navy, fontWeight: FontWeight.bold)),
+                    style: ElevatedButton.styleFrom(backgroundColor: AppColors.gold),
                   ),
                 ],
               ),
-            ),
-          ),
-          
-          // Bottom Navigation Bar (Floating Style)
-          Align(
-            alignment: Alignment.bottomCenter,
-            child: Container(
-              margin: const EdgeInsets.all(20),
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-              decoration: BoxDecoration(
-                color: AppColors.darkBlue,
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: AppColors.white.withOpacity(0.1)),
-              ),
-              child: IntrinsicHeight(
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    IconButton(onPressed: () {}, icon: const Icon(Icons.skip_previous_rounded, color: AppColors.grey)),
-                    const SizedBox(width: 10),
-                    const VerticalDivider(color: AppColors.white, width: 1, indent: 8, endIndent: 8),
-                    const SizedBox(width: 15),
-                    const Icon(Icons.search, color: AppColors.grey, size: 20),
-                    const SizedBox(width: 15),
-                    const Text(
-                      'PAGE 1 OF 12',
-                      style: TextStyle(color: AppColors.gold, fontWeight: FontWeight.bold, fontSize: 10),
-                    ),
-                    const SizedBox(width: 15),
-                    Container(
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        color: AppColors.gold,
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: const Icon(Icons.zoom_in_rounded, color: AppColors.navy, size: 20),
-                    ),
-                    const SizedBox(width: 15),
-                    const VerticalDivider(color: AppColors.white, width: 1, indent: 8, endIndent: 8),
-                    const SizedBox(width: 10),
-                    IconButton(onPressed: () {}, icon: const Icon(Icons.skip_next_rounded, color: AppColors.grey)),
-                  ],
+            )
+          : _isLoading
+              ? const Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      CircularProgressIndicator(color: AppColors.gold),
+                      SizedBox(height: 16),
+                      Text('Chargement du PDF...', style: TextStyle(color: AppColors.grey)),
+                    ],
+                  ),
+                )
+              : PDFView(
+                  filePath: _localPath!,
+                  enableSwipe: true,
+                  swipeHorizontal: false,
+                  autoSpacing: true,
+                  pageFling: true,
+                  backgroundColor: AppColors.navy,
+                  onRender: (pages) {
+                    if (mounted) setState(() { _totalPages = pages ?? 0; _currentPage = 1; });
+                  },
+                  onViewCreated: (controller) {},
+                  onPageChanged: (page, total) {
+                    if (mounted) setState(() => _currentPage = (page ?? 0) + 1);
+                  },
+                  onError: (error) {
+                    if (mounted) setState(() { _hasError = true; _errorMsg = error.toString(); });
+                  },
                 ),
-              ),
-            ),
-          ),
-        ],
-      ),
     );
   }
 }

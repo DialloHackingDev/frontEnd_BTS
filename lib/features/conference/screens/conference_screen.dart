@@ -61,9 +61,11 @@ class _ConferenceScreenState extends State<ConferenceScreen> with SingleTickerPr
   Future<void> _fetchHistory() async {
     setState(() => _isLoading = true);
     try {
-      final response = await _apiService.get('/conferences/history?filter=$_historyFilter');
+      final response = await _apiService.get('/conferences/history', queryParams: {'filter': _historyFilter});
       if (response.statusCode == 200) {
-        final List<dynamic> data = jsonDecode(response.body);
+        final decoded = jsonDecode(response.body);
+        // Le backend retourne {data: [], total, page} ou directement []
+        final List<dynamic> data = decoded is List ? decoded : (decoded['data'] ?? []);
         if (mounted) {
           setState(() {
             _history = data.map((json) => ConferenceItem.fromJson(json)).toList();

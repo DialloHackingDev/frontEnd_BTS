@@ -6,13 +6,14 @@ class LocalStorageService {
   static const String goalsBox = 'goals_cache';
   static const String libraryBox = 'library_cache';
   static const String authBox = 'auth_data';
+  static const String pendingBox = 'pending_actions';
 
-  // Open all necessary boxes
   Future<void> init() async {
     await Hive.openBox(dashboardBox);
     await Hive.openBox(goalsBox);
     await Hive.openBox(libraryBox);
     await Hive.openBox(authBox);
+    await Hive.openBox(pendingBox);
   }
 
   // --- Auth ---
@@ -84,5 +85,34 @@ class LocalStorageService {
     await Hive.box(goalsBox).clear();
     await Hive.box(libraryBox).clear();
     await Hive.box(authBox).clear();
+    await Hive.box(pendingBox).clear();
   }
+
+  // --- Pending Actions (offline queue) ---
+  Future<void> addPendingAction(Map<String, dynamic> action) async {
+    final box = Hive.box(pendingBox);
+    final key = 'action_${DateTime.now().millisecondsSinceEpoch}';
+    await box.put(key, jsonEncode(action));
+  }
+
+  List<Map<String, dynamic>> getPendingActions() {
+    final box = Hive.box(pendingBox);
+    return box.values
+        .map((v) => Map<String, dynamic>.from(jsonDecode(v as String)))
+        .toList();
+  }
+
+  Future<void> removePendingAction(String key) async {
+    await Hive.box(pendingBox).delete(key);
+  }
+
+  Future<void> clearPendingActions() async {
+    await Hive.box(pendingBox).clear();
+  }
+
+  List<String> getPendingActionKeys() {
+    return Hive.box(pendingBox).keys.cast<String>().toList();
+  }
+
+  int get pendingCount => Hive.box(pendingBox).length;
 }

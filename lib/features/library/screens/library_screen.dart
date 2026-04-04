@@ -1,13 +1,13 @@
 import 'package:flutter/material.dart';
 import 'dart:convert';
 import 'package:open_filex/open_filex.dart';
-import 'package:url_launcher/url_launcher.dart';
 import '../../../core/res/styles.dart';
 import '../../../core/network/api_service.dart';
 import '../../../core/services/download_service.dart';
 import '../../../models/library_item.dart';
 import './pdf_viewer_screen.dart';
 import './audio_player_screen.dart';
+import './video_player_screen.dart';
 import '../../admin/screens/library_upload_screen.dart';
 import '../../../core/storage/local_storage_service.dart';
 
@@ -267,7 +267,9 @@ class _LibraryScreenState extends State<LibraryScreen> {
     return GestureDetector(
       onTap: () async {
         if (isVideo) {
-          await launchUrl(Uri.parse(fileUrl), mode: LaunchMode.externalApplication);
+          Navigator.push(context, MaterialPageRoute(
+            builder: (_) => VideoPlayerScreen(title: item.title, url: fileUrl),
+          ));
           return;
         }
         if (isDownloaded) {
@@ -348,7 +350,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                   ),
                   // Actions
                   if (isVideo)
-                    const Icon(Icons.open_in_new_rounded, color: Colors.blueAccent, size: 20)
+                    const Icon(Icons.play_circle_fill_rounded, color: Colors.blueAccent, size: 28)
                   else if (isDownloading)
                     SizedBox(
                       width: 30, height: 30,

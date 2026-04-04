@@ -20,6 +20,7 @@ class JitsiRoomScreen extends StatefulWidget {
 class _JitsiRoomScreenState extends State<JitsiRoomScreen> {
   final JitsiMeet _jitsiMeet = JitsiMeet();
   String? _error;
+  String _status = 'Connexion en cours...';
 
   @override
   void initState() {
@@ -28,27 +29,33 @@ class _JitsiRoomScreenState extends State<JitsiRoomScreen> {
   }
 
   Future<void> _joinRoom() async {
-    setState(() { _error = null; });
+    setState(() { _error = null; _status = 'Connexion en cours...'; });
 
     final user = LocalStorageService().getUser();
 
     final listener = JitsiMeetEventListener(
-      conferenceJoined: (url) {},
+      conferenceJoined: (url) {
+        if (mounted) setState(() => _status = 'Connecté ✅');
+      },
       conferenceTerminated: (url, error) {
         if (mounted) Navigator.pop(context);
       },
-      conferenceWillJoin: (url) {},
+      conferenceWillJoin: (url) {
+        if (mounted) setState(() => _status = 'Connexion à la salle...');
+      },
     );
 
     try {
       await _jitsiMeet.join(
         JitsiMeetConferenceOptions(
-          room: 'https://meet.jit.si/${widget.roomId}',
+          serverURL: 'https://meet.jit.si',
+          room: widget.roomId,
           configOverrides: {
             'startWithAudioMuted': false,
             'startWithVideoMuted': false,
             'subject': widget.title,
             'disableDeepLinking': true,
+            'prejoinPageEnabled': false,
           },
           featureFlags: {
             'welcomepage.enabled': false,
@@ -57,6 +64,7 @@ class _JitsiRoomScreenState extends State<JitsiRoomScreen> {
             'raise-hand.enabled': true,
             'recording.enabled': false,
             'live-streaming.enabled': false,
+            'prejoinpage.enabled': false,
           },
           userInfo: JitsiMeetUserInfo(
             displayName: user?['name'] ?? 'Membre BTS',
@@ -117,15 +125,31 @@ class _JitsiRoomScreenState extends State<JitsiRoomScreen> {
                   ),
                 ],
               )
-            : const Column(
+            : Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  CircularProgressIndicator(color: AppColors.gold),
-                  SizedBox(height: 20),
-                  Text('Connexion à la salle en cours...', style: TextStyle(color: AppColors.grey, fontSize: 14)),
-                  SizedBox(height: 8),
-                  Text('Jitsi Meet va s\'ouvrir dans un instant.',
+                  const CircularProgressIndicator(color: AppColors.gold),
+                  const SizedBox(height: 20),
+                  Text(_status, style: const TextStyle(color: AppColors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 8),
+                  const Text('La latence réseau peut allonger ce délai.',
                       style: TextStyle(color: AppColors.grey, fontSize: 12)),
+                  const SizedBox(height: 30),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                    decoration: BoxDecoration(
+                      color: AppColors.darkBlue,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.wifi_rounded, color: AppColors.gold, size: 16),
+                        const SizedBox(width: 8),
+                        Text('meet.jit.si', style: const TextStyle(color: AppColors.grey, fontSize: 12)),
+                      ],
+                    ),
+                  ),
                 ],
               ),
       ),
