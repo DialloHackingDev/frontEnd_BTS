@@ -1,16 +1,22 @@
 import 'package:flutter/material.dart';
-import 'package:hive_flutter/hive_flutter.dart';
+import 'package:intl/date_symbol_data_local.dart';
 import 'dart:convert';
 import 'core/res/styles.dart';
 import 'core/storage/local_storage_service.dart';
+import 'core/storage/database_service.dart';
 import 'core/network/api_service.dart';
 import 'core/widgets/main_layout.dart';
 import 'features/auth/screens/login_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await Hive.initFlutter();
-  await LocalStorageService().init();
+  await initializeDateFormatting('fr_FR', null);
+  try {
+    await DatabaseService.db;
+    await LocalStorageService.loadCache();
+  } catch (e) {
+    debugPrint('DB init error: $e');
+  }
   runApp(const MyApp());
 }
 
@@ -44,8 +50,8 @@ class _AuthGateState extends State<AuthGate> {
   }
 
   Future<void> _checkAuth() async {
-    final storage = LocalStorageService();
-    final token = storage.getToken();
+    // Lire le token depuis le cache mémoire (chargé au démarrage)
+    final token = LocalStorageService.cachedToken;
 
     if (token == null) {
       _goToLogin();
@@ -53,20 +59,20 @@ class _AuthGateState extends State<AuthGate> {
     }
 
     try {
-      // Valide le token côté serveur
       final response = await ApiService().get('/auth/profile');
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
-        // Met à jour le cache utilisateur avec les données fraîches
-        await storage.saveUser(data['user']);
+        await DatabaseService.saveAuth('user', jsonEncode(data['user']));
+        LocalStorageService.cachedUser = data['user'];
         _goToMain();
       } else {
-        // Token invalide ou expiré
-        await storage.clearAll();
+        await DatabaseService.clearAll();
+        LocalStorageService.cachedToken = null;
+        LocalStorageService.cachedUser = null;
         _goToLogin();
       }
     } catch (e) {
-      // Hors ligne : on fait confiance au cache local
+      // Hors ligne : on fait confiance au cache SQLite
       _goToMain();
     }
   }

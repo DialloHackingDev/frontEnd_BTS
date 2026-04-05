@@ -1,41 +1,55 @@
-import 'package:hive_flutter/hive_flutter.dart';
 import 'dart:convert';
+import 'database_service.dart';
 
 class LocalStorageService {
-  static const String dashboardBox = 'dashboard_cache';
-  static const String goalsBox = 'goals_cache';
-  static const String libraryBox = 'library_cache';
-  static const String authBox = 'auth_data';
-  static const String pendingBox = 'pending_actions';
-
+  // ── Auth ─────────────────────────────────────────────────
   Future<void> init() async {
-    await Hive.openBox(dashboardBox);
-    await Hive.openBox(goalsBox);
-    await Hive.openBox(libraryBox);
-    await Hive.openBox(authBox);
-    await Hive.openBox(pendingBox);
+    await DatabaseService.db; // initialise la DB
   }
 
-  // --- Auth ---
   Future<void> saveToken(String token) async {
-    var box = Hive.box(authBox);
-    await box.put('token', token);
+    await DatabaseService.saveAuth('token', token);
   }
 
-  String? getToken() {
-    var box = Hive.box(authBox);
-    return box.get('token');
+  String? getToken() => _syncGet('token');
+  String? _tokenCache;
+
+  // Pour les appels synchrones on garde un cache mémoire du token
+  static String? cachedToken;
+  static Map<String, dynamic>? cachedUser;
+
+  Future<void> saveTokenAsync(String token) async {
+    cachedToken = token;
+    await DatabaseService.saveAuth('token', token);
   }
+
+  Future<String?> getTokenAsync() async {
+    if (cachedToken != null) return cachedToken;
+    cachedToken = await DatabaseService.getAuth('token');
+    return cachedToken;
+  }
+
+  String? getToken2() => cachedToken;
 
   Future<void> saveUser(dynamic user) async {
-    var box = Hive.box(authBox);
-    await box.put('user', jsonEncode(user));
+    final encoded = jsonEncode(user);
+    cachedUser = user is Map<String, dynamic> ? user : jsonDecode(encoded);
+    await DatabaseService.saveAuth('user', encoded);
   }
 
   dynamic getUser() {
-    var box = Hive.box(authBox);
-    final data = box.get('user');
-    return data != null ? jsonDecode(data) : null;
+    if (cachedUser != null) return cachedUser;
+    return null;
+  }
+
+  Future<dynamic> getUserAsync() async {
+    if (cachedUser != null) return cachedUser;
+    final data = await DatabaseService.getAuth('user');
+    if (data != null) {
+      cachedUser = jsonDecode(data);
+      return cachedUser;
+    }
+    return null;
   }
 
   String getUserRole() {
@@ -43,76 +57,94 @@ class LocalStorageService {
     return user != null ? (user['role'] ?? 'USER') : 'USER';
   }
 
-  // --- Dashboard ---
-  Future<void> saveDashboard(dynamic data) async {
-    var box = Hive.box(dashboardBox);
-    await box.put('stats', jsonEncode(data));
-  }
-
-  dynamic getDashboard() {
-    var box = Hive.box(dashboardBox);
-    final data = box.get('stats');
-    return data != null ? jsonDecode(data) : null;
-  }
-
-  // --- Goals ---
-  Future<void> saveGoals(List<dynamic> data) async {
-    var box = Hive.box(goalsBox);
-    await box.put('list', jsonEncode(data));
-  }
-
-  List<dynamic>? getGoals() {
-    var box = Hive.box(goalsBox);
-    final data = box.get('list');
-    return data != null ? jsonDecode(data) : null;
-  }
-
-  // --- Library ---
-  Future<void> saveLibrary(List<dynamic> data) async {
-    var box = Hive.box(libraryBox);
-    await box.put('items', jsonEncode(data));
-  }
-
-  List<dynamic>? getLibrary() {
-    var box = Hive.box(libraryBox);
-    final data = box.get('items');
-    return data != null ? jsonDecode(data) : null;
-  }
-
-  // Clear all cache (e.g. on logout)
   Future<void> clearAll() async {
-    await Hive.box(dashboardBox).clear();
-    await Hive.box(goalsBox).clear();
-    await Hive.box(libraryBox).clear();
-    await Hive.box(authBox).clear();
-    await Hive.box(pendingBox).clear();
+    cachedToken = null;
+    cachedUser = null;
+    await DatabaseService.clearAll();
   }
 
-  // --- Pending Actions (offline queue) ---
+  // ── Initialisation depuis DB (à appeler au démarrage) ────
+  static Future<void> loadCache() async {
+    cachedToken = await DatabaseService.getAuth('token');
+    final userData = await DatabaseService.getAuth('user');
+    if (userData != null) {
+      cachedUser = jsonDecode(userData);
+    }
+  }
+
+  // ── Goals ────────────────────────────────────────────────
+  Future<void> saveGoals(List<dynamic> data) async {
+    await DatabaseService.saveGoals(
+      data.map((e) => Map<String, dynamic>.from(e)).toList(),
+    );
+  }
+
+  Future<List<dynamic>?> getGoalsAsync() async {
+    final rows = await DatabaseService.getGoals();
+    return rows.isEmpty ? null : rows;
+  }
+
+  // ── Library ──────────────────────────────────────────────
+  Future<void> saveLibrary(List<dynamic> data) async {
+    await DatabaseService.saveLibrary(
+      data.map((e) => Map<String, dynamic>.from(e)).toList(),
+    );
+  }
+
+  Future<List<dynamic>?> getLibraryAsync() async {
+    final rows = await DatabaseService.getLibrary();
+    return rows.isEmpty ? null : rows;
+  }
+
+  // ── Dashboard ────────────────────────────────────────────
+  Future<void> saveDashboard(dynamic data) async {
+    await DatabaseService.saveDashboard('stats', jsonEncode(data));
+  }
+
+  Future<dynamic> getDashboardAsync() async {
+    final data = await DatabaseService.getDashboard('stats');
+    return data != null ? jsonDecode(data) : null;
+  }
+
+  // ── Pending Actions ──────────────────────────────────────
   Future<void> addPendingAction(Map<String, dynamic> action) async {
-    final box = Hive.box(pendingBox);
-    final key = 'action_${DateTime.now().millisecondsSinceEpoch}';
-    await box.put(key, jsonEncode(action));
+    await DatabaseService.addPendingSync(
+      action: action['type'] ?? 'unknown',
+      tableName: _getTableName(action['type']),
+      recordId: action['id'],
+      data: action,
+    );
   }
 
-  List<Map<String, dynamic>> getPendingActions() {
-    final box = Hive.box(pendingBox);
-    return box.values
-        .map((v) => Map<String, dynamic>.from(jsonDecode(v as String)))
-        .toList();
+  Future<List<Map<String, dynamic>>> getPendingActionsAsync() async {
+    final rows = await DatabaseService.getPendingSync();
+    return rows.map((r) {
+      try {
+        return Map<String, dynamic>.from(r);
+      } catch (_) {
+        return r;
+      }
+    }).toList();
   }
 
-  Future<void> removePendingAction(String key) async {
-    await Hive.box(pendingBox).delete(key);
+  Future<void> removePendingAction(int id) async {
+    await DatabaseService.removePendingSync(id);
   }
 
-  Future<void> clearPendingActions() async {
-    await Hive.box(pendingBox).clear();
+  Future<int> getPendingCountAsync() async {
+    return DatabaseService.pendingCount;
   }
 
-  List<String> getPendingActionKeys() {
-    return Hive.box(pendingBox).keys.cast<String>().toList();
+  // Synchrone pour compatibilité (retourne 0 si pas encore chargé)
+  int get pendingCount => 0;
+
+  String _getTableName(String? type) {
+    if (type == null) return 'unknown';
+    if (type.contains('goal')) return 'goals';
+    if (type.contains('library')) return 'library';
+    return 'unknown';
   }
 
-  int get pendingCount => Hive.box(pendingBox).length;
+  // ── Méthode sync pour compatibilité ─────────────────────
+  String? _syncGet(String key) => cachedToken;
 }

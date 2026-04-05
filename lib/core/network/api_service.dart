@@ -1,18 +1,18 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import '../storage/local_storage_service.dart';
+import '../storage/database_service.dart';
 import '../res/constants.dart';
 
 class ApiService {
   static String get baseUrl => AppConstants.apiBaseUrl;
-  final LocalStorageService _storage = LocalStorageService();
 
   Future<Map<String, String>> _getHeaders() async {
-    final token = _storage.getToken();
-    
+    final token = LocalStorageService.cachedToken
+        ?? await DatabaseService.getAuth('token');
     return {
       'Content-Type': 'application/json',
-      'Authorization': 'Bearer $token',
+      'Authorization': 'Bearer ${token ?? ""}',
     };
   }
 
@@ -23,7 +23,7 @@ class ApiService {
       if (queryParams != null) {
         uri = uri.replace(queryParameters: {...uri.queryParameters, ...queryParams});
       }
-      final response = await http.get(uri, headers: headers).timeout(const Duration(seconds: 5));
+      final response = await http.get(uri, headers: headers).timeout(const Duration(seconds: 10));
 
       if (response.statusCode == 200) {
         _cacheData(endpoint, response.body);
@@ -40,18 +40,20 @@ class ApiService {
 
   void _cacheData(String endpoint, String body) {
     final dynamic data = jsonDecode(body);
-    if (endpoint == '/dashboard/stats') _storage.saveDashboard(data);
-    // Pour les endpoints paginés, on cache uniquement la page 1
-    if (endpoint == '/goals') _storage.saveGoals(data is List ? data : (data['data'] ?? []));
-    if (endpoint == '/library') _storage.saveLibrary(data is List ? data : (data['data'] ?? []));
+    if (endpoint == '/dashboard/stats') {
+      DatabaseService.saveDashboard('stats', body);
+    }
+    if (endpoint.startsWith('/goals')) {
+      final items = data is List ? data : (data['data'] ?? []);
+      DatabaseService.saveGoals(List<Map<String, dynamic>>.from(items));
+    }
+    if (endpoint.startsWith('/library')) {
+      final items = data is List ? data : (data['data'] ?? []);
+      DatabaseService.saveLibrary(List<Map<String, dynamic>>.from(items));
+    }
   }
 
-  dynamic _getCachedData(String endpoint) {
-    if (endpoint == '/dashboard/stats') return _storage.getDashboard();
-    if (endpoint == '/goals') return _storage.getGoals();
-    if (endpoint == '/library') return _storage.getLibrary();
-    return null;
-  }
+  dynamic _getCachedData(String endpoint) => null;
 
   Future<http.Response> post(String endpoint, Map<String, dynamic> data) async {
     final headers = await _getHeaders();
@@ -77,7 +79,7 @@ class ApiService {
   }
 
   Future<http.StreamedResponse> uploadFile(String endpoint, String filePath, String title) async {
-    final token = _storage.getToken();
+    final token = LocalStorageService.cachedToken ?? await DatabaseService.getAuth('token');
     final request = http.MultipartRequest('POST', Uri.parse('$baseUrl$endpoint'));
     request.headers.addAll({'Authorization': 'Bearer $token'});
     request.fields['title'] = title;
@@ -92,7 +94,7 @@ class ApiService {
     String filename,
     String title,
   ) async {
-    final token = _storage.getToken();
+    final token = LocalStorageService.cachedToken ?? await DatabaseService.getAuth('token');
     final request = http.MultipartRequest('POST', Uri.parse('$baseUrl$endpoint'));
     request.headers.addAll({'Authorization': 'Bearer $token'});
     request.fields['title'] = title;
@@ -102,7 +104,7 @@ class ApiService {
   }
 
   Future<http.StreamedResponse> uploadImage(String endpoint, String filePath, String fieldName) async {
-    final token = _storage.getToken();
+    final token = LocalStorageService.cachedToken ?? await DatabaseService.getAuth('token');
     final request = http.MultipartRequest('POST', Uri.parse('$baseUrl$endpoint'));
     request.headers.addAll({'Authorization': 'Bearer $token'});
     request.files.add(await http.MultipartFile.fromPath(fieldName, filePath));

@@ -6,6 +6,7 @@ import '../../../core/network/api_service.dart';
 import './user_management_screen.dart';
 import './library_upload_screen.dart';
 import './content_management_screen.dart';
+import '../../planning/screens/notification_screen.dart';
 
 class AdminDashboardScreen extends StatefulWidget {
   const AdminDashboardScreen({super.key});
@@ -123,6 +124,17 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
             side: const BorderSide(color: AppColors.gold, width: 1),
+          ),
+        ),
+        ElevatedButton.icon(
+          onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const NotificationScreen())),
+          icon: const Icon(Icons.notifications_rounded, size: 18),
+          label: const Text('Notifications'),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: AppColors.darkBlue, foregroundColor: Colors.orangeAccent,
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            side: const BorderSide(color: Colors.orangeAccent, width: 1),
           ),
         ),
       ],

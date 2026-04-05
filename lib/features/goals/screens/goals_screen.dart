@@ -3,7 +3,7 @@ import 'dart:convert';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import '../../../core/res/styles.dart';
 import '../../../core/network/api_service.dart';
-import '../../../core/storage/local_storage_service.dart';
+import '../../../core/storage/database_service.dart';
 import '../../../models/goal.dart';
 
 class GoalsScreen extends StatefulWidget {
@@ -15,7 +15,6 @@ class GoalsScreen extends StatefulWidget {
 
 class _GoalsScreenState extends State<GoalsScreen> {
   final ApiService _apiService = ApiService();
-  final LocalStorageService _storage = LocalStorageService();
   List<Goal> _goals = [];
   bool _isLoading = true;
   String? _errorMessage;
@@ -46,8 +45,8 @@ class _GoalsScreenState extends State<GoalsScreen> {
     final result = await Connectivity().checkConnectivity();
     if (mounted) {
       setState(() {
-        _isOffline = result == ConnectivityResult.none;
-        _pendingCount = _storage.pendingCount;
+        _isOffline = result.contains(ConnectivityResult.none) && result.length == 1;
+        _pendingCount = 0; DatabaseService.pendingCount.then((c) { if (mounted) setState(() => _pendingCount = c); });
       });
     }
   }
@@ -78,13 +77,13 @@ class _GoalsScreenState extends State<GoalsScreen> {
     } catch (_) {
       // Hors ligne — charger depuis le cache
       if (mounted) {
-        final cached = _storage.getGoals();
+        final cached = await DatabaseService.getGoals();
         setState(() {
           _isOffline = true;
           _isLoading = false;
           _isLoadingMore = false;
-          _pendingCount = _storage.pendingCount;
-          if (cached != null && _goals.isEmpty) {
+          _pendingCount = 0; DatabaseService.pendingCount.then((c) { if (mounted) setState(() => _pendingCount = c); });
+          if (cached.isNotEmpty && _goals.isEmpty) {
             _goals = cached.map((json) => Goal.fromJson(Map<String, dynamic>.from(json))).toList();
           } else if (_goals.isEmpty) {
             _errorMessage = 'Aucune donnée en cache. Connectez-vous une première fois.';
@@ -135,16 +134,17 @@ class _GoalsScreenState extends State<GoalsScreen> {
       createdAt: DateTime.now(),
     );
 
-    // Sauvegarder dans la file d'attente
-    await _storage.addPendingAction({
-      'type': 'add_goal',
-      'data': {'title': title, 'description': _descController.text.trim()},
-    });
+    // Sauvegarder dans la file d'attente SQLite
+    await DatabaseService.addPendingSync(
+      action: 'add_goal',
+      tableName: 'goals',
+      data: {'title': title, 'description': _descController.text.trim()},
+    );
 
-    // Mettre à jour le cache local
-    final cached = _storage.getGoals() ?? [];
-    cached.insert(0, tempGoal.toJson());
-    await _storage.saveGoals(cached);
+    // Mettre à jour le cache SQLite local
+    final cached = await DatabaseService.getGoals();
+    final updatedList = [tempGoal.toJson(), ...cached];
+    await DatabaseService.saveGoals(updatedList.map((e) => Map<String, dynamic>.from(e)).toList());
 
     _titleController.clear();
     _descController.clear();
@@ -153,7 +153,7 @@ class _GoalsScreenState extends State<GoalsScreen> {
       Navigator.of(dialogContext).pop();
       setState(() {
         _goals.insert(0, tempGoal);
-        _pendingCount = _storage.pendingCount;
+        _pendingCount = 0; DatabaseService.pendingCount.then((c) { if (mounted) setState(() => _pendingCount = c); });
       });
       _showSnack('Objectif sauvegardé hors ligne 📴 — sera synchronisé au retour du réseau', Colors.orange);
     }
@@ -161,28 +161,7 @@ class _GoalsScreenState extends State<GoalsScreen> {
 
   // ── Marquer comme terminé (online ou offline) ────────────
   Future<void> _markGoalCompleted(Goal goal) async {
-    final isOnline = await _isOnline();
-
-    if (isOnline) {
-      try {
-        final response = await _apiService.put('/goals/${goal.id}', {'status': 'completed'});
-        if (response.statusCode == 200) {
-          _fetchGoals(reset: true);
-        }
-      } catch (_) {
-        await _markCompletedOffline(goal);
-      }
-    } else {
-      await _markCompletedOffline(goal);
-    }
-  }
-
-  Future<void> _markCompletedOffline(Goal goal) async {
-    if (goal.id > 0) {
-      // ID réel → mettre en file d'attente
-      await _storage.addPendingAction({'type': 'complete_goal', 'id': goal.id});
-    }
-    // Mettre à jour localement
+    // Mise à jour optimiste immédiate
     if (mounted) {
       setState(() {
         final idx = _goals.indexWhere((g) => g.id == goal.id);
@@ -191,7 +170,48 @@ class _GoalsScreenState extends State<GoalsScreen> {
             id: goal.id, title: goal.title, description: goal.description,
             status: 'completed', dueDate: goal.dueDate, createdAt: goal.createdAt,
           );
-          _pendingCount = _storage.pendingCount;
+        }
+      });
+    }
+
+    try {
+      final response = await _apiService.put('/goals/${goal.id}', {'status': 'completed'});
+      if (response.statusCode != 200) {
+        // Rollback si erreur serveur
+        if (mounted) {
+          setState(() {
+            final idx = _goals.indexWhere((g) => g.id == goal.id);
+            if (idx != -1) {
+              _goals[idx] = goal;
+            }
+          });
+          _showSnack('Erreur lors de la mise à jour', Colors.red);
+        }
+      } else {
+        _showSnack('Objectif terminé ✅', Colors.green);
+      }
+    } catch (_) {
+      await _markCompletedOffline(goal);
+    }
+  }
+
+  Future<void> _markCompletedOffline(Goal goal) async {
+    if (goal.id > 0) {
+      await DatabaseService.addPendingSync(
+        action: 'complete_goal',
+        tableName: 'goals',
+        recordId: goal.id,
+        data: {'type': 'complete_goal', 'id': goal.id},
+      );
+    }
+    if (mounted) {
+      setState(() {
+        final idx = _goals.indexWhere((g) => g.id == goal.id);
+        if (idx != -1) {
+          _goals[idx] = Goal(
+            id: goal.id, title: goal.title, description: goal.description,
+            status: 'completed', dueDate: goal.dueDate, createdAt: goal.createdAt,
+          );
         }
       });
     }
@@ -213,19 +233,24 @@ class _GoalsScreenState extends State<GoalsScreen> {
 
     // Offline ou ID temporaire
     if (goal.id > 0) {
-      await _storage.addPendingAction({'type': 'delete_goal', 'id': goal.id});
+      await DatabaseService.addPendingSync(
+        action: 'delete_goal',
+        tableName: 'goals',
+        recordId: goal.id,
+        data: {'type': 'delete_goal', 'id': goal.id},
+      );
     }
     if (mounted) {
       setState(() {
         _goals.removeWhere((g) => g.id == goal.id);
-        _pendingCount = _storage.pendingCount;
+        _pendingCount = 0; DatabaseService.pendingCount.then((c) { if (mounted) setState(() => _pendingCount = c); });
       });
     }
   }
 
   Future<bool> _isOnline() async {
     final result = await Connectivity().checkConnectivity();
-    return result != ConnectivityResult.none;
+    return !(result.contains(ConnectivityResult.none) && result.length == 1);
   }
 
   void _showSnack(String msg, Color color) {
@@ -517,14 +542,18 @@ class _GoalsScreenState extends State<GoalsScreen> {
               children: [
                 GestureDetector(
                   onTap: isCompleted ? null : () => _markGoalCompleted(goal),
-                  child: Container(
-                    width: 24, height: 24,
-                    decoration: BoxDecoration(
-                      color: isCompleted ? Colors.green : Colors.transparent,
-                      border: Border.all(color: isCompleted ? Colors.green : AppColors.gold, width: 2),
-                      borderRadius: BorderRadius.circular(6),
+                  behavior: HitTestBehavior.opaque,
+                  child: Padding(
+                    padding: const EdgeInsets.all(8),
+                    child: Container(
+                      width: 26, height: 26,
+                      decoration: BoxDecoration(
+                        color: isCompleted ? Colors.green : Colors.transparent,
+                        border: Border.all(color: isCompleted ? Colors.green : AppColors.gold, width: 2),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: isCompleted ? const Icon(Icons.check, size: 16, color: Colors.white) : null,
                     ),
-                    child: isCompleted ? const Icon(Icons.check, size: 14, color: Colors.white) : null,
                   ),
                 ),
                 const SizedBox(width: 16),

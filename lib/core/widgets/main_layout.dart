@@ -7,13 +7,16 @@ import '../../features/auth/screens/login_screen.dart';
 import '../res/styles.dart';
 import '../network/api_service.dart';
 import '../storage/local_storage_service.dart';
+import '../storage/database_service.dart';
 import '../services/offline_sync_service.dart';
+import '../services/sync_service.dart';
 import '../../features/dashboard/screens/dashboard_screen.dart';
 import '../../features/goals/screens/goals_screen.dart';
 import '../../features/library/screens/library_screen.dart';
 import '../../features/conference/screens/conference_screen.dart';
 import '../../features/admin/screens/admin_dashboard_screen.dart';
 import '../../features/profile/screens/profile_screen.dart';
+import '../../features/planning/screens/planning_screen.dart';
 
 class MainLayout extends StatefulWidget {
   const MainLayout({super.key});
@@ -31,6 +34,7 @@ class _MainLayoutState extends State<MainLayout> {
   bool _justReconnected = false;
   late StreamSubscription<List<ConnectivityResult>> _connectivitySubscription;
   final OfflineSyncService _syncService = OfflineSyncService();
+  final SyncService _fullSyncService = SyncService();
 
   @override
   void initState() {
@@ -49,13 +53,16 @@ class _MainLayoutState extends State<MainLayout> {
       // Retour du réseau → sync automatique
       if (wasOffline && !isNowOffline) {
         if (mounted) setState(() => _justReconnected = true);
+        // Sync actions locales vers serveur
         final synced = await _syncService.syncPendingActions();
+        // Sync données serveur vers SQLite
+        await _fullSyncService.syncFromServer();
         if (mounted) {
           setState(() => _justReconnected = false);
           if (synced > 0) {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
-                content: Text('✅ $synced action(s) synchronisée(s) avec le serveur'),
+                content: Text('✅ $synced action(s) synchronisée(s)'),
                 backgroundColor: Colors.green,
                 duration: const Duration(seconds: 3),
               ),
@@ -77,7 +84,8 @@ class _MainLayoutState extends State<MainLayout> {
       final response = await ApiService().get('/auth/profile');
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
-        await LocalStorageService().saveUser(data['user']);
+        await DatabaseService.saveAuth('user', jsonEncode(data['user']));
+        LocalStorageService.cachedUser = data['user'];
         if (mounted) {
           setState(() {
             _userName = data['user']['name'] ?? 'Utilisateur BTS';
@@ -86,8 +94,9 @@ class _MainLayoutState extends State<MainLayout> {
           });
         }
       } else if (response.statusCode == 401 || response.statusCode == 403) {
-        // Token expiré ou invalide → déconnexion forcée
-        await AuthService().logout();
+        LocalStorageService.cachedToken = null;
+        LocalStorageService.cachedUser = null;
+        await DatabaseService.clearAll();
         if (!mounted) return;
         Navigator.pushAndRemoveUntil(
           context,
@@ -97,8 +106,8 @@ class _MainLayoutState extends State<MainLayout> {
       }
     } catch (e) {
       debugPrint('Erreur profil: $e');
-      // Mode hors-ligne : charger depuis le cache
-      final cached = LocalStorageService().getUser();
+      // Mode hors-ligne : charger depuis SQLite
+      final cached = LocalStorageService.cachedUser;
       if (cached != null && mounted) {
         setState(() {
           _userName = cached['name'] ?? 'Utilisateur BTS';
@@ -113,6 +122,7 @@ class _MainLayoutState extends State<MainLayout> {
     final pages = [
       const DashboardScreen(),
       const GoalsScreen(),
+      const PlanningScreen(),
       const LibraryScreen(),
       const ConferenceScreen(),
       const ProfileScreen(),
@@ -165,7 +175,7 @@ class _MainLayoutState extends State<MainLayout> {
                 onTap: () {
                   Navigator.pop(context); // close drawer
                   // Navigate to admin tab
-                  final adminIndex = 5;
+                  final adminIndex = 6;
                   setState(() => _selectedIndex = adminIndex);
                 },
               ),
@@ -221,6 +231,7 @@ class _MainLayoutState extends State<MainLayout> {
           items: [
             const BottomNavigationBarItem(icon: Icon(Icons.dashboard_rounded), label: 'Dashboard'),
             const BottomNavigationBarItem(icon: Icon(Icons.emoji_events_rounded), label: 'Goals'),
+            const BottomNavigationBarItem(icon: Icon(Icons.calendar_month_rounded), label: 'Planning'),
             const BottomNavigationBarItem(icon: Icon(Icons.library_books_rounded), label: 'Library'),
             const BottomNavigationBarItem(icon: Icon(Icons.people_alt_rounded), label: 'Conferences'),
             const BottomNavigationBarItem(icon: Icon(Icons.person_rounded), label: 'Profil'),

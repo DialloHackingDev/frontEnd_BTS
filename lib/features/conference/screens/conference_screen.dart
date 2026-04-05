@@ -5,6 +5,8 @@ import '../../../core/network/api_service.dart';
 import '../../../models/conference_item.dart';
 import './jitsi_room_screen.dart';
 
+import '../../../core/storage/local_storage_service.dart';
+
 class ConferenceScreen extends StatefulWidget {
   const ConferenceScreen({super.key});
 
@@ -19,10 +21,12 @@ class _ConferenceScreenState extends State<ConferenceScreen> with SingleTickerPr
   bool _isLoading = true;
   late TabController _tabController;
   String _historyFilter = 'all';
+  String _userRole = 'USER';
 
   @override
   void initState() {
     super.initState();
+    _userRole = LocalStorageService().getUserRole();
     _tabController = TabController(length: 2, vsync: this);
     _tabController.addListener(() {
       if (_tabController.indexIsChanging) {
@@ -99,14 +103,22 @@ class _ConferenceScreenState extends State<ConferenceScreen> with SingleTickerPr
         title: const Text('TERMINER LA SESSION', style: TextStyle(color: AppColors.gold, fontWeight: FontWeight.bold)),
         content: Column(
           mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('Lien de l\'enregistrement (optionnel)', style: TextStyle(color: AppColors.grey, fontSize: 13)),
+            const Text('Lien de l\'enregistrement vidéo', style: TextStyle(color: AppColors.white, fontWeight: FontWeight.bold, fontSize: 13)),
+            const SizedBox(height: 4),
+            const Text('Collez ici le lien de la vidéo enregistrée (YouTube, Drive, etc.)', style: TextStyle(color: AppColors.grey, fontSize: 11)),
             const SizedBox(height: 12),
             TextField(
               controller: videoController,
               style: const TextStyle(color: AppColors.white),
-              decoration: const InputDecoration(hintText: 'https://...'),
+              decoration: const InputDecoration(
+                hintText: 'https://youtube.com/watch?v=...',
+                prefixIcon: Icon(Icons.link_rounded, color: AppColors.gold, size: 18),
+              ),
             ),
+            const SizedBox(height: 8),
+            const Text('Laissez vide pour terminer sans enregistrement.', style: TextStyle(color: AppColors.grey, fontSize: 10)),
           ],
         ),
         actions: [
@@ -117,13 +129,38 @@ class _ConferenceScreenState extends State<ConferenceScreen> with SingleTickerPr
     ) ?? false;
 
     if (!confirmed) return;
+
     try {
-      await _apiService.put('/conferences/${conference.id}/end', {'videoUrl': videoController.text.trim()});
+      final videoUrl = videoController.text.trim();
+      final response = await _apiService.put(
+        '/conferences/${conference.id}/end',
+        {'videoUrl': videoUrl},
+      );
       if (mounted) {
-        _fetchLive();
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Session terminée et enregistrée ✅'), backgroundColor: Colors.green),
-        );
+        if (response.statusCode == 200) {
+          // Retirer immédiatement de la liste locale sans attendre le serveur
+          setState(() {
+            _live.removeWhere((c) => c.id == conference.id);
+          });
+          // Puis recharger depuis le serveur
+          _fetchLive();
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(videoUrl.isNotEmpty
+                  ? 'Session terminée et vidéo enregistrée ✅'
+                  : 'Session terminée ✅'),
+              backgroundColor: Colors.green,
+            ),
+          );
+        } else {
+          final data = jsonDecode(response.body);
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(data['error'] ?? 'Erreur lors de la terminaison'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
       }
     } catch (e) {
       if (mounted) {
@@ -377,7 +414,7 @@ class _ConferenceScreenState extends State<ConferenceScreen> with SingleTickerPr
               style: TextStyle(color: isLive ? AppColors.navy : AppColors.gold, fontWeight: FontWeight.bold),
             ),
           ),
-          if (isLive) ...[
+          if (isLive && _userRole == 'ADMIN') ...[
             const SizedBox(height: 8),
             OutlinedButton(
               onPressed: () => _endConference(conference),
