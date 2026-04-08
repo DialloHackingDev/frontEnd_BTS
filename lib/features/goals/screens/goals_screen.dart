@@ -179,8 +179,13 @@ class _GoalsScreenState extends State<GoalsScreen> {
     }
   }
 
-  // ── Marquer comme terminé (online ou offline) ────────────
-  Future<void> _markGoalCompleted(Goal goal) async {
+  // ── Toggle status (compléter ou décocher) ───────────────
+  Future<void> _toggleGoalStatus(Goal goal) async {
+    final isCurrentlyCompleted = goal.status == 'completed';
+    final newStatus = isCurrentlyCompleted ? 'pending' : 'completed';
+    final successMessage = isCurrentlyCompleted ? 'Objectif réactivé' : 'Objectif terminé ✅';
+    final successColor = isCurrentlyCompleted ? AppColors.gold : Colors.green;
+    
     // Mise à jour optimiste immédiate
     if (mounted) {
       setState(() {
@@ -188,14 +193,14 @@ class _GoalsScreenState extends State<GoalsScreen> {
         if (idx != -1) {
           _goals[idx] = Goal(
             id: goal.id, title: goal.title, description: goal.description,
-            status: 'completed', dueDate: goal.dueDate, createdAt: goal.createdAt,
+            status: newStatus, dueDate: goal.dueDate, createdAt: goal.createdAt,
           );
         }
       });
     }
 
     try {
-      final response = await _apiService.put('/goals/${goal.id}', {'status': 'completed'});
+      final response = await _apiService.put('/goals/${goal.id}', {'status': newStatus});
       if (response.statusCode != 200) {
         // Rollback si erreur serveur
         if (mounted) {
@@ -208,10 +213,32 @@ class _GoalsScreenState extends State<GoalsScreen> {
           _showSnack('Erreur lors de la mise à jour', Colors.red);
         }
       } else {
-        _showSnack('Objectif terminé ✅', Colors.green);
+        _showSnack(successMessage, successColor);
       }
     } catch (_) {
-      await _markCompletedOffline(goal);
+      await _markStatusOffline(goal, newStatus);
+    }
+  }
+  
+  Future<void> _markStatusOffline(Goal goal, String newStatus) async {
+    if (goal.id > 0) {
+      await DatabaseService.addPendingSync(
+        action: 'update_goal_status',
+        tableName: 'goals',
+        recordId: goal.id,
+        data: {'type': 'update_goal_status', 'id': goal.id, 'status': newStatus},
+      );
+    }
+    if (mounted) {
+      setState(() {
+        final idx = _goals.indexWhere((g) => g.id == goal.id);
+        if (idx != -1) {
+          _goals[idx] = Goal(
+            id: goal.id, title: goal.title, description: goal.description,
+            status: newStatus, dueDate: goal.dueDate, createdAt: goal.createdAt,
+          );
+        }
+      });
     }
   }
 
@@ -603,7 +630,7 @@ class _GoalsScreenState extends State<GoalsScreen> {
             Row(
               children: [
                 GestureDetector(
-                  onTap: isCompleted ? null : () => _markGoalCompleted(goal),
+                  onTap: () => _toggleGoalStatus(goal),
                   behavior: HitTestBehavior.opaque,
                   child: Padding(
                     padding: const EdgeInsets.all(8),

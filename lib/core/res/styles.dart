@@ -32,7 +32,12 @@ class AppTheme {
       scaffoldBackgroundColor: AppColors.navy,
       primaryColor: AppColors.gold,
       cardColor: AppColors.darkBlue,
-      fontFamily: 'Inter', // Assurez-vous d'ajouter GoogleFonts plus tard
+      fontFamily: 'Inter',
+      // Désactiver les bordures de focus visibles
+      focusColor: Colors.transparent,
+      highlightColor: Colors.transparent,
+      splashColor: Colors.transparent,
+      hoverColor: Colors.transparent,
       
       appBarTheme: const AppBarTheme(
         backgroundColor: AppColors.navy,

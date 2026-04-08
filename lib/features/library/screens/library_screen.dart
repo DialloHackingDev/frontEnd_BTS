@@ -36,6 +36,10 @@ class _LibraryScreenState extends State<LibraryScreen> {
   bool _hasMore = true;
   bool _isLoadingMore = false;
   
+  /// Controller pour la recherche
+  final TextEditingController _searchController = TextEditingController();
+  String _searchQuery = '';
+  
   /// ScrollController pour l'infinite scroll
   final ScrollController _scrollController = ScrollController();
 
@@ -51,6 +55,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
   @override
   void dispose() {
     _scrollController.dispose();
+    _searchController.dispose();
     super.dispose();
   }
 
@@ -158,9 +163,29 @@ class _LibraryScreenState extends State<LibraryScreen> {
   }
 
   List<LibraryItem> get _filteredItems {
-    if (_activeFilter == 0) return _items;
-    String typeFilter = _activeFilter == 1 ? 'pdf' : (_activeFilter == 2 ? 'audio' : 'video');
-    return _items.where((item) => item.type == typeFilter).toList();
+    List<LibraryItem> result = _items;
+    
+    // Filtre par type
+    if (_activeFilter != 0) {
+      String typeFilter = _activeFilter == 1 ? 'pdf' : (_activeFilter == 2 ? 'audio' : 'video');
+      result = result.where((item) => item.type == typeFilter).toList();
+    }
+    
+    // Filtre par recherche texte
+    if (_searchQuery.isNotEmpty) {
+      final query = _searchQuery.toLowerCase();
+      result = result.where((item) => 
+        item.title.toLowerCase().contains(query) ||
+        (item.description?.toLowerCase().contains(query) ?? false) ||
+        (item.category?.toLowerCase().contains(query) ?? false)
+      ).toList();
+    }
+    
+    return result;
+  }
+  
+  void _onSearchChanged(String value) {
+    setState(() => _searchQuery = value);
   }
 
   @override
@@ -225,12 +250,23 @@ class _LibraryScreenState extends State<LibraryScreen> {
                           color: AppColors.darkBlue,
                           borderRadius: BorderRadius.circular(16),
                         ),
-                        child: const TextField(
-                          style: TextStyle(color: AppColors.white),
+                        child: TextField(
+                          controller: _searchController,
+                          onChanged: _onSearchChanged,
+                          style: const TextStyle(color: AppColors.white),
                           decoration: InputDecoration(
                             hintText: 'Rechercher une ressource...',
-                            hintStyle: TextStyle(color: AppColors.grey),
-                            prefixIcon: Icon(Icons.search, color: AppColors.grey),
+                            hintStyle: const TextStyle(color: AppColors.grey),
+                            prefixIcon: const Icon(Icons.search, color: AppColors.grey),
+                            suffixIcon: _searchQuery.isNotEmpty
+                              ? IconButton(
+                                  icon: const Icon(Icons.clear, color: AppColors.grey),
+                                  onPressed: () {
+                                    _searchController.clear();
+                                    _onSearchChanged('');
+                                  },
+                                )
+                              : null,
                             border: InputBorder.none,
                           ),
                         ),
@@ -350,7 +386,9 @@ class _LibraryScreenState extends State<LibraryScreen> {
     final isDownloaded = localPath != null;
     final progress = _downloadProgress[item.id];
     final isDownloading = progress != null;
-    final fileUrl = item.url.startsWith('http') ? item.url : '${ApiService.baseUrl}${item.url}';
+    final fileUrl = item.url.startsWith('http') 
+        ? item.url 
+        : '${ApiService.baseUrl}${item.url.startsWith('/') ? '' : '/'}${item.url}';
     final isVideo = item.type == 'video';
 
     IconData typeIcon = isVideo

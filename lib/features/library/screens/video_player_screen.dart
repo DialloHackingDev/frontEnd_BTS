@@ -28,11 +28,33 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
 
   Future<void> _initPlayer() async {
     try {
-      _controller = VideoPlayerController.networkUrl(Uri.parse(widget.url));
+      debugPrint('🎥 Chargement vidéo: ${widget.url}');
+      
+      // Vérifier que l'URL est valide
+      final uri = Uri.parse(widget.url);
+      if (!uri.isAbsolute) {
+        throw Exception('URL invalide: ${widget.url}');
+      }
+      
+      _controller = VideoPlayerController.networkUrl(uri);
+      
+      // Ajouter un listener pour détecter les erreurs
+      _controller.addListener(() {
+        if (_controller.value.hasError && mounted) {
+          debugPrint('❌ Erreur vidéo: ${_controller.value.errorDescription}');
+          setState(() => _hasError = true);
+        }
+        if (mounted) setState(() {});
+      });
+      
       await _controller.initialize();
-      _controller.addListener(() { if (mounted) setState(() {}); });
-      if (mounted) setState(() => _isInitialized = true);
+      
+      if (mounted) {
+        setState(() => _isInitialized = true);
+        debugPrint('✅ Vidéo chargée avec succès');
+      }
     } catch (e) {
+      debugPrint('❌ Erreur chargement vidéo: $e');
       if (mounted) setState(() => _hasError = true);
     }
   }
@@ -73,16 +95,56 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
       ),
       body: _hasError
           ? Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  const Icon(Icons.error_outline_rounded, color: Colors.redAccent, size: 60),
-                  const SizedBox(height: 16),
-                  const Text('Impossible de lire cette vidéo.', style: TextStyle(color: AppColors.white)),
-                  const SizedBox(height: 8),
-                  const Text('Vérifiez que le lien est valide et accessible.',
-                      style: TextStyle(color: AppColors.grey, fontSize: 12)),
-                ],
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Icon(Icons.error_outline_rounded, color: Colors.redAccent, size: 60),
+                    const SizedBox(height: 16),
+                    const Text('Impossible de lire cette vidéo.', style: TextStyle(color: AppColors.white, fontSize: 16)),
+                    const SizedBox(height: 8),
+                    const Text('Vérifiez que le lien est valide et accessible.',
+                        style: TextStyle(color: AppColors.grey, fontSize: 12), textAlign: TextAlign.center),
+                    const SizedBox(height: 20),
+                    // Afficher l'URL pour debug
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.05),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.redAccent.withOpacity(0.3)),
+                      ),
+                      child: Column(
+                        children: [
+                          const Text('URL:', style: TextStyle(color: AppColors.grey, fontSize: 10)),
+                          const SizedBox(height: 4),
+                          Text(widget.url, 
+                            style: const TextStyle(color: AppColors.white, fontSize: 11, fontFamily: 'monospace'),
+                            textAlign: TextAlign.center,
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 24),
+                    // Bouton réessayer
+                    ElevatedButton.icon(
+                      onPressed: () {
+                        setState(() {
+                          _hasError = false;
+                          _isInitialized = false;
+                        });
+                        _initPlayer();
+                      },
+                      icon: const Icon(Icons.refresh),
+                      label: const Text('Réessayer'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.gold,
+                        foregroundColor: AppColors.navy,
+                      ),
+                    ),
+                  ],
+                ),
               ),
             )
           : !_isInitialized

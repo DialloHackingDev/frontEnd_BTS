@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:sqflite/sqflite.dart';
 import '../../../core/res/styles.dart';
 import '../../../core/storage/local_storage_service.dart';
+import '../../../core/storage/database_service.dart';
 
 class SettingsScreen extends StatefulWidget {
   final Function(int)? onNavigate;
@@ -32,9 +34,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Future<void> _saveLanguage(String lang) async {
     setState(() => _selectedLanguage = lang);
-    // Sauvegarder dans le cache utilisateur
+    // Sauvegarder dans le cache utilisateur et SQLite
     if (LocalStorageService.cachedUser != null) {
       LocalStorageService.cachedUser!['language'] = lang;
+      // Sauvegarder en base locale
+      final db = await DatabaseService.db;
+      await db.insert('auth', {
+        'key': 'language',
+        'value': lang,
+      }, conflictAlgorithm: ConflictAlgorithm.replace);
     }
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
