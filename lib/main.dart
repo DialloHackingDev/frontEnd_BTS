@@ -7,6 +7,7 @@ import 'core/storage/database_service.dart';
 import 'core/network/api_service.dart';
 import 'core/widgets/main_layout.dart';
 import 'features/auth/screens/login_screen.dart';
+import 'features/splash/splash_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -95,32 +96,7 @@ class _AuthGateState extends State<AuthGate> {
 
   @override
   Widget build(BuildContext context) {
-    // Écran de chargement pendant la vérification du token
-    return const Scaffold(
-      backgroundColor: AppColors.navy,
-      body: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Text(
-              'BTS',
-              style: TextStyle(
-                color: AppColors.gold,
-                fontSize: 48,
-                fontWeight: FontWeight.bold,
-                letterSpacing: 4,
-              ),
-            ),
-            SizedBox(height: 8),
-            Text(
-              'BORN TO SUCCESS',
-              style: TextStyle(color: AppColors.grey, fontSize: 14, letterSpacing: 2),
-            ),
-            SizedBox(height: 40),
-            CircularProgressIndicator(color: AppColors.gold),
-          ],
-        ),
-      ),
-    );
+    // Splash screen professionnelle avec animation
+    return const SplashScreen();
   }
 }

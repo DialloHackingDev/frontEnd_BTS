@@ -8,7 +8,9 @@ import './jitsi_room_screen.dart';
 import '../../../core/storage/local_storage_service.dart';
 
 class ConferenceScreen extends StatefulWidget {
-  const ConferenceScreen({super.key});
+  final Function(int)? onNavigate;
+  
+  const ConferenceScreen({super.key, this.onNavigate});
 
   @override
   State<ConferenceScreen> createState() => _ConferenceScreenState();
@@ -217,9 +219,25 @@ class _ConferenceScreenState extends State<ConferenceScreen> with SingleTickerPr
       appBar: AppBar(
         title: const Text('BORN TO SUCCESS'),
         actions: [
-          IconButton(
-            onPressed: () => _tabController.index == 0 ? _fetchLive() : _fetchHistory(),
-            icon: const Icon(Icons.refresh_rounded),
+          // Menu trois points avec navigation
+          PopupMenuButton<int>(
+            icon: const Icon(Icons.more_vert),
+            tooltip: 'Navigation',
+            onSelected: (index) {
+              if (index != 4 && widget.onNavigate != null) {
+                widget.onNavigate!(index);
+              }
+            },
+            itemBuilder: (context) => [
+              const PopupMenuItem(value: 0, child: Text('Dashboard')),
+              const PopupMenuItem(value: 1, child: Text('Goals')),
+              const PopupMenuItem(value: 2, child: Text('Planning')),
+              const PopupMenuItem(value: 3, child: Text('Library')),
+              const PopupMenuItem(value: 4, child: Text('Conferences'), enabled: false),
+              const PopupMenuItem(value: 5, child: Text('Profil')),
+              const PopupMenuItem(value: 6, child: Text('Admin')),
+              const PopupMenuItem(value: 7, child: Text('Paramètres')),
+            ],
           ),
         ],
         bottom: TabBar(

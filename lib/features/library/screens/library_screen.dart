@@ -8,11 +8,15 @@ import '../../../models/library_item.dart';
 import './pdf_viewer_screen.dart';
 import './audio_player_screen.dart';
 import './video_player_screen.dart';
+import './cache_management_screen.dart';
 import '../../admin/screens/library_upload_screen.dart';
 import '../../../core/storage/local_storage_service.dart';
+import '../../../core/services/cache_service.dart';
 
 class LibraryScreen extends StatefulWidget {
-  const LibraryScreen({super.key});
+  final Function(int)? onNavigate;
+  
+  const LibraryScreen({super.key, this.onNavigate});
 
   @override
   State<LibraryScreen> createState() => _LibraryScreenState();
@@ -31,12 +35,44 @@ class _LibraryScreenState extends State<LibraryScreen> {
   int _page = 1;
   bool _hasMore = true;
   bool _isLoadingMore = false;
+  
+  /// ScrollController pour l'infinite scroll
+  final ScrollController _scrollController = ScrollController();
 
   @override
   void initState() {
     super.initState();
     _userRole = LocalStorageService().getUserRole();
+    _initCacheService();
     _fetchLibrary(reset: true);
+    _scrollController.addListener(_onScroll);
+  }
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  /// Détecte quand on arrive en bas de la liste pour charger plus
+  void _onScroll() {
+    if (_isLoadingMore || !_hasMore) return;
+    
+    final maxScroll = _scrollController.position.maxScrollExtent;
+    final currentScroll = _scrollController.position.pixels;
+    final delta = 200.0; // Déclenche 200px avant la fin
+    
+    if (maxScroll - currentScroll <= delta) {
+      _fetchLibrary();
+    }
+  }
+
+  Future<void> _initCacheService() async {
+    try {
+      await CacheService.clearExpired(); // Nettoyer les fichiers expirés au démarrage
+    } catch (e) {
+      print('Erreur init cache service: $e');
+    }
   }
 
   Future<void> _checkLocalFiles(List<LibraryItem> items) async {
@@ -133,87 +169,148 @@ class _LibraryScreenState extends State<LibraryScreen> {
       appBar: AppBar(
         title: const Text('BORN TO SUCCESS'),
         actions: [
-          IconButton(onPressed: () => _fetchLibrary(reset: true), icon: const Icon(Icons.refresh_rounded)),
+          // Menu trois points avec navigation
+          PopupMenuButton<int>(
+            icon: const Icon(Icons.more_vert),
+            tooltip: 'Navigation',
+            onSelected: (index) {
+              if (index != 3 && widget.onNavigate != null) {
+                widget.onNavigate!(index);
+              }
+            },
+            itemBuilder: (context) => [
+              const PopupMenuItem(value: 0, child: Text('Dashboard')),
+              const PopupMenuItem(value: 1, child: Text('Goals')),
+              const PopupMenuItem(value: 2, child: Text('Planning')),
+              const PopupMenuItem(value: 3, child: Text('Library'), enabled: false),
+              const PopupMenuItem(value: 4, child: Text('Conferences')),
+              const PopupMenuItem(value: 5, child: Text('Profil')),
+              const PopupMenuItem(value: 6, child: Text('Admin')),
+              const PopupMenuItem(value: 7, child: Text('Paramètres')),
+            ],
+          ),
+          IconButton(
+            onPressed: () async {
+              await Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const CacheManagementScreen()),
+              );
+              _fetchLibrary(reset: true);
+            },
+            icon: const Icon(Icons.storage_rounded),
+            tooltip: 'Gestion du cache',
+          ),
         ],
       ),
-      body: _isLoading 
-        ? const Center(child: CircularProgressIndicator(color: AppColors.gold))
-        : SingleChildScrollView(
-            padding: const EdgeInsets.all(20),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Search Bar
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  decoration: BoxDecoration(color: AppColors.darkBlue, borderRadius: BorderRadius.circular(16)),
-                  child: const TextField(
-                    style: TextStyle(color: AppColors.white),
-                    decoration: InputDecoration(
-                      hintText: 'Rechercher une ressource...',
-                      hintStyle: TextStyle(color: AppColors.grey),
-                      prefixIcon: Icon(Icons.search, color: AppColors.grey),
-                      border: InputBorder.none,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 25),
-                
-                // Filter Chips
-                SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  child: Row(
+      body: RefreshIndicator(
+        onRefresh: () => _fetchLibrary(reset: true),
+        color: AppColors.gold,
+        backgroundColor: AppColors.darkBlue,
+        child: _isLoading 
+          ? const Center(child: CircularProgressIndicator(color: AppColors.gold))
+          : CustomScrollView(
+              controller: _scrollController,
+              physics: const AlwaysScrollableScrollPhysics(), // Nécessaire pour RefreshIndicator
+              slivers: [
+              // Search Bar
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.all(20),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      _buildFilterChip(0, 'Tous'),
-                      const SizedBox(width: 10),
-                      _buildFilterChip(1, 'PDF'),
-                      const SizedBox(width: 10),
-                      _buildFilterChip(2, 'Audio'),
-                      const SizedBox(width: 10),
-                      _buildFilterChip(3, 'Vidéo'),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        decoration: BoxDecoration(
+                          color: AppColors.darkBlue,
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        child: const TextField(
+                          style: TextStyle(color: AppColors.white),
+                          decoration: InputDecoration(
+                            hintText: 'Rechercher une ressource...',
+                            hintStyle: TextStyle(color: AppColors.grey),
+                            prefixIcon: Icon(Icons.search, color: AppColors.grey),
+                            border: InputBorder.none,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 25),
+                      
+                      // Filter Chips
+                      SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        child: Row(
+                          children: [
+                            _buildFilterChip(0, 'Tous'),
+                            const SizedBox(width: 10),
+                            _buildFilterChip(1, 'PDF'),
+                            const SizedBox(width: 10),
+                            _buildFilterChip(2, 'Audio'),
+                            const SizedBox(width: 10),
+                            _buildFilterChip(3, 'Vidéo'),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 30),
+                      
+                      if (_errorMessage != null)
+                        Center(
+                          child: Padding(
+                            padding: const EdgeInsets.only(top: 50),
+                            child: Text(_errorMessage!, style: const TextStyle(color: AppColors.grey)),
+                          ),
+                        )
+                      else if (_filteredItems.isEmpty && !_isLoading)
+                        const Center(
+                          child: Padding(
+                            padding: EdgeInsets.only(top: 50),
+                            child: Text('Aucune ressource trouvée.', style: TextStyle(color: AppColors.grey)),
+                          ),
+                        ),
                     ],
                   ),
                 ),
-                const SizedBox(height: 30),
-                
-                if (_errorMessage != null)
-                  Center(
-                    child: Padding(
-                      padding: const EdgeInsets.only(top: 50),
-                      child: Text(_errorMessage!, style: const TextStyle(color: AppColors.grey)),
-                    ),
-                  )
-                else if (_filteredItems.isEmpty && !_isLoading)
-                  const Center(
-                    child: Padding(
-                      padding: EdgeInsets.only(top: 50),
-                      child: Text('Aucune ressource trouvée.', style: TextStyle(color: AppColors.grey)),
-                    ),
-                  ),
-
-                if (_errorMessage == null)
-                  ListView.separated(
-                    shrinkWrap: true,
-                    physics: const NeverScrollableScrollPhysics(),
-                    itemCount: _filteredItems.length + (_hasMore ? 1 : 0),
-                    separatorBuilder: (_, __) => const SizedBox(height: 15),
-                    itemBuilder: (context, index) {
-                      if (index == _filteredItems.length) {
-                        return Center(
-                          child: _isLoadingMore
-                            ? const CircularProgressIndicator(color: AppColors.gold)
-                            : TextButton(
-                                onPressed: _fetchLibrary,
-                                child: const Text('Charger plus', style: TextStyle(color: AppColors.gold)),
-                              ),
+              ),
+              
+              // Liste avec infinite scroll
+              if (_errorMessage == null && _filteredItems.isNotEmpty)
+                SliverPadding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  sliver: SliverList(
+                    delegate: SliverChildBuilderDelegate(
+                      (context, index) {
+                        if (index == _filteredItems.length) {
+                          // Loader en fin de liste
+                          return Center(
+                            child: Padding(
+                              padding: const EdgeInsets.all(16),
+                              child: _isLoadingMore
+                                ? const CircularProgressIndicator(color: AppColors.gold)
+                                : _hasMore
+                                  ? const Text(
+                                      'Chargement...',
+                                      style: TextStyle(color: AppColors.grey),
+                                    )
+                                  : const Text(
+                                      'Fin de la liste',
+                                      style: TextStyle(color: AppColors.grey),
+                                    ),
+                            ),
+                          );
+                        }
+                        return Padding(
+                          padding: const EdgeInsets.only(bottom: 15),
+                          child: _buildLibraryCard(_filteredItems[index]),
                         );
-                      }
-                      return _buildLibraryCard(_filteredItems[index]);
-                    },
+                      },
+                      childCount: _filteredItems.length + 1,
+                    ),
                   ),
+                ),
               ],
             ),
-          ),
+      ),
       floatingActionButton: _userRole == 'ADMIN' 
         ? FloatingActionButton(
             backgroundColor: AppColors.gold,

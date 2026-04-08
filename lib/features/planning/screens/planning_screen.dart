@@ -9,7 +9,9 @@ import '../../../models/goal.dart';
 import './event_form_screen.dart';
 
 class PlanningScreen extends StatefulWidget {
-  const PlanningScreen({super.key});
+  final Function(int)? onNavigate;
+  
+  const PlanningScreen({super.key, this.onNavigate});
 
   @override
   State<PlanningScreen> createState() => _PlanningScreenState();
@@ -98,9 +100,8 @@ class _PlanningScreenState extends State<PlanningScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('PLANNING'),
+        title: const Text('BORN TO SUCCESS'),
         actions: [
-          IconButton(onPressed: _fetchData, icon: const Icon(Icons.refresh_rounded)),
           if (_userRole == 'ADMIN')
             IconButton(
               icon: const Icon(Icons.add_rounded, color: AppColors.gold),
@@ -112,11 +113,35 @@ class _PlanningScreenState extends State<PlanningScreen> {
                 if (result == true) _fetchData();
               },
             ),
+          // Menu trois points avec navigation
+          PopupMenuButton<int>(
+            icon: const Icon(Icons.more_vert),
+            tooltip: 'Navigation',
+            onSelected: (index) {
+              if (index != 2 && widget.onNavigate != null) {
+                widget.onNavigate!(index);
+              }
+            },
+            itemBuilder: (context) => [
+              const PopupMenuItem(value: 0, child: Text('Dashboard')),
+              const PopupMenuItem(value: 1, child: Text('Goals')),
+              const PopupMenuItem(value: 2, child: Text('Planning'), enabled: false),
+              const PopupMenuItem(value: 3, child: Text('Library')),
+              const PopupMenuItem(value: 4, child: Text('Conferences')),
+              const PopupMenuItem(value: 5, child: Text('Profil')),
+              const PopupMenuItem(value: 6, child: Text('Admin')),
+              const PopupMenuItem(value: 7, child: Text('Paramètres')),
+            ],
+          ),
         ],
       ),
-      body: CustomScrollView(
-        physics: const BouncingScrollPhysics(),
-        slivers: [
+      body: RefreshIndicator(
+        onRefresh: _fetchData,
+        color: AppColors.gold,
+        backgroundColor: AppColors.darkBlue,
+        child: CustomScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          slivers: [
           // Calendrier
           SliverToBoxAdapter(
             child: Container(
@@ -198,9 +223,7 @@ class _PlanningScreenState extends State<PlanningScreen> {
 
           // Contenu du jour
           if (_isLoading)
-            const SliverFillRemaining(
-              child: Center(child: CircularProgressIndicator(color: AppColors.gold)),
-            )
+            const SliverToBoxAdapter(child: SizedBox.shrink())
           else if (selectedEvents.isEmpty && selectedGoals.isEmpty)
             SliverFillRemaining(
               child: Center(
@@ -237,6 +260,7 @@ class _PlanningScreenState extends State<PlanningScreen> {
               ),
             ),
         ],
+        ),
       ),
     );
   }

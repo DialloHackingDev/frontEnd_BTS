@@ -1,8 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_pdfview/flutter_pdfview.dart';
-import 'package:dio/dio.dart';
-import 'package:path_provider/path_provider.dart';
 import '../../../core/res/styles.dart';
+import '../../../core/services/cache_service.dart';
 
 class PdfViewerScreen extends StatefulWidget {
   final String title;
@@ -31,11 +30,21 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
   Future<void> _downloadAndLoad() async {
     setState(() { _isLoading = true; _hasError = false; });
     try {
-      final dir = await getTemporaryDirectory();
-      final fileName = 'bts_pdf_${DateTime.now().millisecondsSinceEpoch}.pdf';
-      final filePath = '${dir.path}/$fileName';
+      // Vérifier d'abord si le fichier est en cache
+      final cachedPath = await CacheService.getCachedFile(widget.url);
+      
+      if (cachedPath != null) {
+        print('PDF cache hit: $cachedPath');
+        if (mounted) setState(() { _localPath = cachedPath; _isLoading = false; });
+        return;
+      }
 
-      await Dio().download(widget.url, filePath);
+      // Télécharger et mettre en cache
+      print('Téléchargement PDF: ${widget.url}');
+      final filePath = await CacheService.downloadAndCache(
+        widget.url,
+        fileType: 'pdf',
+      );
 
       if (mounted) setState(() { _localPath = filePath; _isLoading = false; });
     } catch (e) {

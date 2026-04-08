@@ -9,7 +9,9 @@ import './content_management_screen.dart';
 import '../../planning/screens/notification_screen.dart';
 
 class AdminDashboardScreen extends StatefulWidget {
-  const AdminDashboardScreen({super.key});
+  final Function(int)? onNavigate;
+  
+  const AdminDashboardScreen({super.key, this.onNavigate});
 
   @override
   State<AdminDashboardScreen> createState() => _AdminDashboardScreenState();
@@ -56,34 +58,59 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     return Scaffold(
       backgroundColor: AppColors.navy,
       appBar: AppBar(
-        title: const Text('ADMIN PANEL', style: TextStyle(letterSpacing: 1.5, fontWeight: FontWeight.bold)),
+        title: const Text('BORN TO SUCCESS', style: TextStyle(letterSpacing: 1.5, fontWeight: FontWeight.bold)),
         actions: [
-          IconButton(onPressed: _fetchAdminData, icon: const Icon(Icons.refresh_rounded)),
+          // Menu trois points avec navigation
+          PopupMenuButton<int>(
+            icon: const Icon(Icons.more_vert),
+            tooltip: 'Navigation',
+            onSelected: (index) {
+              if (index != 6 && widget.onNavigate != null) {
+                widget.onNavigate!(index);
+              }
+            },
+            itemBuilder: (context) => [
+              const PopupMenuItem(value: 0, child: Text('Dashboard')),
+              const PopupMenuItem(value: 1, child: Text('Goals')),
+              const PopupMenuItem(value: 2, child: Text('Planning')),
+              const PopupMenuItem(value: 3, child: Text('Library')),
+              const PopupMenuItem(value: 4, child: Text('Conferences')),
+              const PopupMenuItem(value: 5, child: Text('Profil')),
+              const PopupMenuItem(value: 6, child: Text('Admin'), enabled: false),
+              const PopupMenuItem(value: 7, child: Text('Paramètres')),
+            ],
+          ),
         ],
       ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator(color: AppColors.gold))
-          : SingleChildScrollView(
-              padding: const EdgeInsets.all(20),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  _buildHeaderSection(),
-                  const SizedBox(height: 30),
-                  _buildStatsGrid(),
-                  const SizedBox(height: 40),
-                  const Text(
-                    'ENGAGEMENT UTILISATEURS',
-                    style: TextStyle(color: AppColors.gold, fontWeight: FontWeight.bold, fontSize: 14, letterSpacing: 1.2),
-                  ),
-                  const SizedBox(height: 20),
-                  _buildLineChart(),
-                  const SizedBox(height: 40),
-                  _buildPortfolioSection(),
-                  const SizedBox(height: 30),
-                ],
+      body: RefreshIndicator(
+        onRefresh: _fetchAdminData,
+        color: AppColors.gold,
+        backgroundColor: AppColors.darkBlue,
+        child: _isLoading
+            ? const Center(child: CircularProgressIndicator(color: AppColors.gold))
+            : SingleChildScrollView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                padding: const EdgeInsets.all(20),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _buildHeaderSection(),
+                    const SizedBox(height: 30),
+                    _buildStatsGrid(),
+                    const SizedBox(height: 40),
+                    const Text(
+                      'ENGAGEMENT UTILISATEURS',
+                      style: TextStyle(color: AppColors.gold, fontWeight: FontWeight.bold, fontSize: 14, letterSpacing: 1.2),
+                    ),
+                    const SizedBox(height: 20),
+                    _buildLineChart(),
+                    const SizedBox(height: 40),
+                    _buildPortfolioSection(),
+                    const SizedBox(height: 30),
+                  ],
+                ),
               ),
-            ),
+      ),
     );
   }
 

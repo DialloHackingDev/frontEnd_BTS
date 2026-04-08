@@ -8,7 +8,9 @@ import '../../../core/storage/local_storage_service.dart';
 import '../../auth/screens/login_screen.dart';
 
 class ProfileScreen extends StatefulWidget {
-  const ProfileScreen({super.key});
+  final Function(int)? onNavigate;
+  
+  const ProfileScreen({super.key, this.onNavigate});
 
   @override
   State<ProfileScreen> createState() => _ProfileScreenState();
@@ -211,12 +213,36 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('PROFIL'),
+        title: const Text('BORN TO SUCCESS'),
         actions: [
-          IconButton(onPressed: _fetchActivity, icon: const Icon(Icons.refresh_rounded)),
+          // Menu trois points avec navigation
+          PopupMenuButton<int>(
+            icon: const Icon(Icons.more_vert),
+            tooltip: 'Navigation',
+            onSelected: (index) {
+              if (index != 5 && widget.onNavigate != null) {
+                widget.onNavigate!(index);
+              }
+            },
+            itemBuilder: (context) => [
+              const PopupMenuItem(value: 0, child: Text('Dashboard')),
+              const PopupMenuItem(value: 1, child: Text('Goals')),
+              const PopupMenuItem(value: 2, child: Text('Planning')),
+              const PopupMenuItem(value: 3, child: Text('Library')),
+              const PopupMenuItem(value: 4, child: Text('Conferences')),
+              const PopupMenuItem(value: 5, child: Text('Profil'), enabled: false),
+              const PopupMenuItem(value: 6, child: Text('Admin')),
+              const PopupMenuItem(value: 7, child: Text('Paramètres')),
+            ],
+          ),
         ],
       ),
-      body: SingleChildScrollView(
+      body: RefreshIndicator(
+        onRefresh: _fetchActivity,
+        color: AppColors.gold,
+        backgroundColor: AppColors.darkBlue,
+        child: SingleChildScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.all(20),
         child: Column(
           children: [
@@ -374,6 +400,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
               ),
             ),
           ],
+        ),
         ),
       ),
     );

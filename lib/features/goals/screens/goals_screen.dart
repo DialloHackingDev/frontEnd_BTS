@@ -7,7 +7,9 @@ import '../../../core/storage/database_service.dart';
 import '../../../models/goal.dart';
 
 class GoalsScreen extends StatefulWidget {
-  const GoalsScreen({super.key});
+  final Function(int)? onNavigate;
+  
+  const GoalsScreen({super.key, this.onNavigate});
 
   @override
   State<GoalsScreen> createState() => _GoalsScreenState();
@@ -26,19 +28,37 @@ class _GoalsScreenState extends State<GoalsScreen> {
   int _pendingCount = 0;
   final TextEditingController _titleController = TextEditingController();
   final TextEditingController _descController = TextEditingController();
+  
+  /// ScrollController pour l'infinite scroll
+  final ScrollController _scrollController = ScrollController();
 
   @override
   void initState() {
     super.initState();
     _checkConnectivity();
     _fetchGoals(reset: true);
+    _scrollController.addListener(_onScroll);
   }
 
   @override
   void dispose() {
     _titleController.dispose();
     _descController.dispose();
+    _scrollController.dispose();
     super.dispose();
+  }
+
+  /// Détecte quand on arrive en bas de la liste pour charger plus
+  void _onScroll() {
+    if (_isLoadingMore || !_hasMore || _isOffline) return;
+    
+    final maxScroll = _scrollController.position.maxScrollExtent;
+    final currentScroll = _scrollController.position.pixels;
+    final delta = 200.0; // Déclenche 200px avant la fin
+    
+    if (maxScroll - currentScroll <= delta) {
+      _fetchGoals();
+    }
   }
 
   Future<void> _checkConnectivity() async {
@@ -217,6 +237,10 @@ class _GoalsScreenState extends State<GoalsScreen> {
     }
   }
 
+  /// Getter pour les goals filtrés
+  List<Goal> get _filteredGoals => _goals.where((g) =>
+      _activeFilter == 0 ? g.status == 'pending' : g.status == 'completed').toList();
+
   // ── Supprimer (online ou offline) ────────────────────────
   Future<void> _deleteGoal(Goal goal) async {
     final isOnline = await _isOnline();
@@ -352,7 +376,26 @@ class _GoalsScreenState extends State<GoalsScreen> {
                 ),
               ),
             ),
-          IconButton(onPressed: () => _fetchGoals(reset: true), icon: const Icon(Icons.refresh_rounded)),
+          // Menu trois points avec navigation
+          PopupMenuButton<int>(
+            icon: const Icon(Icons.more_vert),
+            tooltip: 'Navigation',
+            onSelected: (index) {
+              if (index != 1 && widget.onNavigate != null) {
+                widget.onNavigate!(index);
+              }
+            },
+            itemBuilder: (context) => [
+              const PopupMenuItem(value: 0, child: Text('Dashboard')),
+              const PopupMenuItem(value: 1, child: Text('Goals'), enabled: false),
+              const PopupMenuItem(value: 2, child: Text('Planning')),
+              const PopupMenuItem(value: 3, child: Text('Library')),
+              const PopupMenuItem(value: 4, child: Text('Conferences')),
+              const PopupMenuItem(value: 5, child: Text('Profil')),
+              const PopupMenuItem(value: 6, child: Text('Admin')),
+              const PopupMenuItem(value: 7, child: Text('Paramètres')),
+            ],
+          ),
         ],
       ),
       body: Column(
@@ -379,79 +422,98 @@ class _GoalsScreenState extends State<GoalsScreen> {
               ),
             ),
           Expanded(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.all(20),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text('PERFORMANCE TRACKING',
-                      style: TextStyle(color: AppColors.gold, letterSpacing: 1.5, fontSize: 12, fontWeight: FontWeight.bold)),
-                  const SizedBox(height: 8),
-                  const Text('Architect Your\nDestiny',
-                      style: TextStyle(color: AppColors.white, fontSize: 36, fontWeight: FontWeight.bold, height: 1.1)),
-                  const SizedBox(height: 30),
+            child: RefreshIndicator(
+              onRefresh: () => _fetchGoals(reset: true),
+              color: AppColors.gold,
+              backgroundColor: AppColors.darkBlue,
+              child: CustomScrollView(
+                controller: _scrollController,
+                physics: const AlwaysScrollableScrollPhysics(),
+                slivers: [
+                SliverPadding(
+                  padding: const EdgeInsets.all(20),
+                  sliver: SliverList(
+                    delegate: SliverChildListDelegate([
+                      const Text('PERFORMANCE TRACKING',
+                          style: TextStyle(color: AppColors.gold, letterSpacing: 1.5, fontSize: 12, fontWeight: FontWeight.bold)),
+                      const SizedBox(height: 8),
+                      const Text('Architect Your\nDestiny',
+                          style: TextStyle(color: AppColors.white, fontSize: 36, fontWeight: FontWeight.bold, height: 1.1)),
+                      const SizedBox(height: 30),
 
-                  Row(
-                    children: [
-                      _buildFilterTab(0, 'En cours', _goals.where((g) => g.status == 'pending').length.toString()),
-                      const SizedBox(width: 12),
-                      _buildFilterTab(1, 'Terminés', _goals.where((g) => g.status == 'completed').length.toString()),
-                    ],
+                      Row(
+                        children: [
+                          _buildFilterTab(0, 'En cours', _goals.where((g) => g.status == 'pending').length.toString()),
+                          const SizedBox(width: 12),
+                          _buildFilterTab(1, 'Terminés', _goals.where((g) => g.status == 'completed').length.toString()),
+                        ],
+                      ),
+                      const SizedBox(height: 30),
+
+                      if (_isLoading)
+                        const Center(child: Padding(
+                          padding: EdgeInsets.only(top: 50),
+                          child: CircularProgressIndicator(color: AppColors.gold),
+                        ))
+                      else if (_errorMessage != null)
+                        Center(child: Padding(
+                          padding: const EdgeInsets.only(top: 50),
+                          child: Text(_errorMessage!, style: const TextStyle(color: AppColors.grey)),
+                        ))
+                      else if (_filteredGoals.isEmpty)
+                        Center(child: Padding(
+                          padding: const EdgeInsets.only(top: 50),
+                          child: Column(
+                            children: [
+                              Icon(Icons.emoji_events_outlined, color: AppColors.gold.withOpacity(0.3), size: 64),
+                              const SizedBox(height: 16),
+                              Text(
+                                _activeFilter == 0 ? 'Aucun objectif en cours' : 'Aucun objectif terminé',
+                                style: const TextStyle(color: AppColors.grey),
+                              ),
+                            ],
+                          ),
+                        )),
+                    ]),
                   ),
-                  const SizedBox(height: 30),
-
-                  Builder(builder: (context) {
-                    final filteredGoals = _goals.where((g) =>
-                        _activeFilter == 0 ? g.status == 'pending' : g.status == 'completed').toList();
-
-                    if (_isLoading) {
-                      return const Center(child: Padding(
-                        padding: EdgeInsets.only(top: 50),
-                        child: CircularProgressIndicator(color: AppColors.gold),
-                      ));
-                    }
-                    if (_errorMessage != null) {
-                      return Center(child: Padding(
-                        padding: const EdgeInsets.only(top: 50),
-                        child: Text(_errorMessage!, style: const TextStyle(color: AppColors.grey)),
-                      ));
-                    }
-                    if (filteredGoals.isEmpty) {
-                      return Center(child: Padding(
-                        padding: const EdgeInsets.only(top: 50),
-                        child: Column(
-                          children: [
-                            Icon(Icons.emoji_events_outlined, color: AppColors.gold.withOpacity(0.3), size: 64),
-                            const SizedBox(height: 16),
-                            Text(
-                              _activeFilter == 0 ? 'Aucun objectif en cours' : 'Aucun objectif terminé',
-                              style: const TextStyle(color: AppColors.grey),
-                            ),
-                          ],
-                        ),
-                      ));
-                    }
-                    return ListView.separated(
-                      shrinkWrap: true,
-                      physics: const NeverScrollableScrollPhysics(),
-                      itemCount: filteredGoals.length + (_hasMore && !_isOffline ? 1 : 0),
-                      separatorBuilder: (_, __) => const SizedBox(height: 16),
-                      itemBuilder: (context, index) {
-                        if (index == filteredGoals.length) {
-                          return Center(
-                            child: _isLoadingMore
-                                ? const CircularProgressIndicator(color: AppColors.gold)
-                                : TextButton(
-                                    onPressed: _fetchGoals,
-                                    child: const Text('Charger plus', style: TextStyle(color: AppColors.gold)),
-                                  ),
+                ),
+                
+                // Liste des goals avec infinite scroll
+                if (_filteredGoals.isNotEmpty)
+                  SliverPadding(
+                    padding: const EdgeInsets.symmetric(horizontal: 20),
+                    sliver: SliverList(
+                      delegate: SliverChildBuilderDelegate(
+                        (context, index) {
+                          if (index == _filteredGoals.length) {
+                            // Loader en fin de liste
+                            return Center(
+                              child: Padding(
+                                padding: const EdgeInsets.all(16),
+                                child: _isLoadingMore
+                                  ? const CircularProgressIndicator(color: AppColors.gold)
+                                  : _hasMore && !_isOffline
+                                    ? const Text(
+                                        'Chargement...',
+                                        style: TextStyle(color: AppColors.grey),
+                                      )
+                                    : const Text(
+                                        'Fin de la liste',
+                                        style: TextStyle(color: AppColors.grey),
+                                      ),
+                              ),
+                            );
+                          }
+                          return Padding(
+                            padding: const EdgeInsets.only(bottom: 16),
+                            child: _buildGoalCard(_filteredGoals[index]),
                           );
-                        }
-                        return _buildGoalCard(filteredGoals[index]);
-                      },
-                    );
-                  }),
-                ],
+                        },
+                        childCount: _filteredGoals.length + 1,
+                      ),
+                    ),
+                  ),
+              ],
               ),
             ),
           ),

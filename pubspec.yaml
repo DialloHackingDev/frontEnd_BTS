@@ -50,10 +50,17 @@ dependencies:
   open_filex: ^4.5.0
   image_picker: ^1.1.2
   video_player: ^2.8.3
+  just_audio: ^0.9.40
+  audio_session: ^0.1.21
   flutter_pdfview: ^1.4.4
   table_calendar: ^3.2.0
   agora_rtc_engine: 6.5.3
   permission_handler: ^11.3.1
+  cached_network_image: ^3.4.1
+  flutter_bloc: ^8.1.6
+  equatable: ^2.0.7
+  flutter_native_splash: ^2.4.1
+  flutter_svg: ^2.0.10+1
 
 dev_dependencies:
   flutter_test:
@@ -78,9 +85,9 @@ flutter:
   uses-material-design: true
 
   # To add assets to your application, add an assets section, like this:
-  # assets:
-  #   - images/a_dot_burr.jpeg
-  #   - images/a_dot_ham.jpeg
+  assets:
+    - assets/icon/
+    - assets/img/
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/assets-and-images/#resolution-aware

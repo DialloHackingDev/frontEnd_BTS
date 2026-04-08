@@ -17,6 +17,7 @@ import '../../features/conference/screens/conference_screen.dart';
 import '../../features/admin/screens/admin_dashboard_screen.dart';
 import '../../features/profile/screens/profile_screen.dart';
 import '../../features/planning/screens/planning_screen.dart';
+import '../../features/settings/screens/settings_screen.dart';
 
 class MainLayout extends StatefulWidget {
   const MainLayout({super.key});
@@ -120,23 +121,35 @@ class _MainLayoutState extends State<MainLayout> {
 
   List<Widget> get _pages {
     final pages = [
-      const DashboardScreen(),
-      const GoalsScreen(),
-      const PlanningScreen(),
-      const LibraryScreen(),
-      const ConferenceScreen(),
-      const ProfileScreen(),
+      DashboardScreen(onNavigate: _onItemTapped),
+      GoalsScreen(onNavigate: _onItemTapped),
+      PlanningScreen(onNavigate: _onItemTapped),
+      LibraryScreen(onNavigate: _onItemTapped),
+      ConferenceScreen(onNavigate: _onItemTapped),
+      ProfileScreen(onNavigate: _onItemTapped),
     ];
     if (_userRole == 'ADMIN') {
-      pages.add(const AdminDashboardScreen());
+      pages.add(AdminDashboardScreen(onNavigate: _onItemTapped));
     }
     return pages;
   }
 
   void _onItemTapped(int index) {
+    // Paramètres (index 7) est géré séparément
+    if (index == 7) {
+      _openSettings();
+      return;
+    }
     setState(() {
       _selectedIndex = index;
     });
+  }
+
+  void _openSettings() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const SettingsScreen()),
+    );
   }
 
   @override
@@ -173,12 +186,18 @@ class _MainLayoutState extends State<MainLayout> {
                 leading: const Icon(Icons.admin_panel_settings_rounded, color: AppColors.gold),
                 title: const Text('PANEL ADMIN', style: TextStyle(color: AppColors.gold, fontWeight: FontWeight.bold)),
                 onTap: () {
-                  Navigator.pop(context); // close drawer
-                  // Navigate to admin tab
-                  final adminIndex = 6;
-                  setState(() => _selectedIndex = adminIndex);
+                  Navigator.pop(context);
+                  setState(() => _selectedIndex = 6);
                 },
               ),
+            ListTile(
+              leading: const Icon(Icons.settings, color: AppColors.grey),
+              title: const Text('PARAMÈTRES', style: TextStyle(color: AppColors.white, fontWeight: FontWeight.bold)),
+              onTap: () {
+                Navigator.pop(context);
+                _openSettings();
+              },
+            ),
             ListTile(
               leading: const Icon(Icons.logout, color: Colors.redAccent),
               title: const Text('DÉCONNEXION', style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold)),
@@ -218,7 +237,9 @@ class _MainLayoutState extends State<MainLayout> {
               ],
             ),
           ),
-          Expanded(child: _pages[_selectedIndex]),
+          Expanded(
+            child: _pages[_selectedIndex],
+          ),
         ],
       ),
       bottomNavigationBar: Container(

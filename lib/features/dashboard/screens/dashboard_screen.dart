@@ -12,7 +12,9 @@ import '../../library/screens/audio_player_screen.dart';
 import '../../library/screens/video_player_screen.dart';
 
 class DashboardScreen extends StatefulWidget {
-  const DashboardScreen({super.key});
+  final Function(int)? onNavigate;
+  
+  const DashboardScreen({super.key, this.onNavigate});
 
   @override
   State<DashboardScreen> createState() => _DashboardScreenState();
@@ -251,9 +253,25 @@ class _DashboardScreenState extends State<DashboardScreen>
       title: const Text('BORN TO SUCCESS',
           style: TextStyle(color: AppColors.white, fontWeight: FontWeight.bold, fontSize: 18, letterSpacing: 1)),
       actions: [
-        IconButton(
-          onPressed: _fetchAll,
-          icon: const Icon(Icons.refresh_rounded, color: AppColors.white),
+        // Menu trois points avec navigation
+        PopupMenuButton<int>(
+          icon: const Icon(Icons.more_vert, color: AppColors.white),
+          tooltip: 'Navigation',
+          onSelected: (index) {
+            if (index != 0 && widget.onNavigate != null) {
+              widget.onNavigate!(index);
+            }
+          },
+          itemBuilder: (context) => [
+            const PopupMenuItem(value: 0, child: Text('Dashboard'), enabled: false),
+            const PopupMenuItem(value: 1, child: Text('Goals')),
+            const PopupMenuItem(value: 2, child: Text('Planning')),
+            const PopupMenuItem(value: 3, child: Text('Library')),
+            const PopupMenuItem(value: 4, child: Text('Conferences')),
+            const PopupMenuItem(value: 5, child: Text('Profil')),
+            const PopupMenuItem(value: 6, child: Text('Admin')),
+            const PopupMenuItem(value: 7, child: Text('Paramètres')),
+          ],
         ),
       ],
     );

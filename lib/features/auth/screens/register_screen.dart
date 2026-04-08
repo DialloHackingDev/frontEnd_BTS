@@ -85,9 +85,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
         child: SingleChildScrollView(
           child: Column(
             children: [
-              const SizedBox(height: 60),
+              const SizedBox(height: 50),
               _buildLogo(),
-              const SizedBox(height: 24),
+              const SizedBox(height: 30),
               const Text(
                 'BORN TO SUCCESS',
                 style: TextStyle(color: AppColors.white, fontSize: 24, fontWeight: FontWeight.bold, letterSpacing: 1.5),
@@ -147,6 +147,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   ),
                 ],
               ),
+              // Logo en bas de page
+              _buildBottomLogo(),
               const SizedBox(height: 20),
             ],
           ),
@@ -157,15 +159,50 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
   Widget _buildLogo() {
     return Container(
-      width: 80, height: 80,
+      width: 120,
+      height: 120,
       decoration: BoxDecoration(
-        color: AppColors.gold.withOpacity(0.1),
         shape: BoxShape.circle,
-        border: Border.all(color: AppColors.gold, width: 2),
+        border: Border.all(color: AppColors.gold.withOpacity(0.4), width: 2),
       ),
-      child: const Center(
-        child: Text('BTS', style: TextStyle(color: AppColors.gold, fontSize: 24, fontWeight: FontWeight.bold, letterSpacing: 2)),
+      child: ClipOval(
+        child: Image.asset(
+          'assets/img/logo.png',
+          fit: BoxFit.cover,
+          width: 120,
+          height: 120,
+        ),
       ),
+    );
+  }
+
+  // Logo en bas de page - version discrète
+  Widget _buildBottomLogo() {
+    return Column(
+      children: [
+        const SizedBox(height: 30),
+        Opacity(
+          opacity: 0.8,
+          child: ClipOval(
+            child: Image.asset(
+              'assets/img/logo.png',
+              width: 40,
+              height: 40,
+              fit: BoxFit.cover,
+            ),
+          ),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          'BORN TO SUCCESS',
+          style: TextStyle(
+            color: AppColors.gold.withOpacity(0.5),
+            fontSize: 10,
+            fontWeight: FontWeight.bold,
+            letterSpacing: 2,
+          ),
+        ),
+      ],
     );
   }
 
