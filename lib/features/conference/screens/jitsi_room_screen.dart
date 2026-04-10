@@ -38,13 +38,19 @@ class _JitsiRoomScreenState extends State<JitsiRoomScreen> {
   Timer? _callTimer;
   int _callDuration = 0; // en secondes
   
-  // Mode d'affichage
-  bool _isGridView = true;
   final TextEditingController _chatController = TextEditingController();
   final List<Map<String, dynamic>> _chatMessages = [];
   
   // Réactions emoji temporaires
   final List<Map<String, dynamic>> _floatingReactions = [];
+  
+  // Partage d'écran
+  bool _isScreenSharing = false;
+  int? _screenShareUid; // UID du participant qui partage (null = personne)
+  
+  // Lever de main
+  bool _isHandRaised = false;
+  final Set<int> _raisedHands = {}; // Set des UIDs qui ont levé la main
   
   @override
   void dispose() {
@@ -296,6 +302,8 @@ class _JitsiRoomScreenState extends State<JitsiRoomScreen> {
         },
         onUserOffline: (connection, uid, reason) {
           if (mounted) setState(() => _remoteUids.remove(uid));
+          // Retirer aussi des mains levées si l'utilisateur part
+          _raisedHands.remove(uid);
         },
         onError: (err, msg) {
           debugPrint('Agora error: $err - $msg');
@@ -305,6 +313,18 @@ class _JitsiRoomScreenState extends State<JitsiRoomScreen> {
           debugPrint('Agora connection state: $state reason: $reason');
           if (state == ConnectionStateType.connectionStateConnected && mounted) {
             setState(() => _isInitializing = false);
+          }
+        },
+        onRemoteVideoStateChanged: (connection, remoteUid, state, reason, elapsed) {
+          debugPrint('Agora video state: uid=$remoteUid state=$state');
+          // Détecter le partage d'écran (state 2 = RemoteVideoStateStarting)
+          if (state == RemoteVideoState.remoteVideoStateStarting) {
+            // Vérifier si c'est un partage d'écran (type de flux)
+            setState(() => _screenShareUid = remoteUid);
+          } else if (state == RemoteVideoState.remoteVideoStateStopped) {
+            if (_screenShareUid == remoteUid) {
+              setState(() => _screenShareUid = null);
+            }
           }
         },
       ));
@@ -343,6 +363,75 @@ class _JitsiRoomScreenState extends State<JitsiRoomScreen> {
   Future<void> _toggleAudio() async {
     setState(() => _localAudioEnabled = !_localAudioEnabled);
     await _engine?.muteLocalAudioStream(!_localAudioEnabled);
+  }
+
+  /// ─── PARTAGE D'ÉCRAN ───
+  Future<void> _toggleScreenSharing() async {
+    if (_isScreenSharing) {
+      // Arrêter le partage d'écran
+      await _engine?.stopScreenCapture();
+      setState(() => _isScreenSharing = false);
+    } else {
+      // Démarrer le partage d'écran
+      try {
+        await _engine?.startScreenCapture(const ScreenCaptureParameters2(
+          captureAudio: true,
+          captureVideo: true,
+        ));
+        setState(() => _isScreenSharing = true);
+        
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('📺 Partage d\'écran activé'),
+              backgroundColor: Colors.green,
+              duration: Duration(seconds: 2),
+            ),
+          );
+        }
+      } catch (e) {
+        debugPrint('Erreur partage écran: $e');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Erreur partage d\'écran: $e'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      }
+    }
+  }
+
+  /// ─── LEVER DE MAIN ───
+  Future<void> _toggleHandRaise() async {
+    setState(() => _isHandRaised = !_isHandRaised);
+    
+    // TODO: Envoyer aux autres participants via le canal de données Agora
+    // Pour l'instant, simulé localement
+    
+    if (_isHandRaised) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('✋ Main levée'),
+            backgroundColor: AppColors.gold,
+            duration: Duration(seconds: 1),
+          ),
+        );
+      }
+    }
+  }
+
+  /// ─── LEVER DE MAIN POUR AUTRES ───
+  void _onRemoteHandRaised(int uid, bool isRaised) {
+    setState(() {
+      if (isRaised) {
+        _raisedHands.add(uid);
+      } else {
+        _raisedHands.remove(uid);
+      }
+    });
   }
 
   Future<void> _leaveChannel() async {
@@ -632,12 +721,19 @@ class _JitsiRoomScreenState extends State<JitsiRoomScreen> {
                         label: 'Vidéo',
                         isActive: _localVideoEnabled,
                       ),
-                      // Épingler/Grille
+                      // Lever de main
                       _buildControlButton(
-                        icon: _isGridView ? Icons.grid_view_rounded : Icons.fullscreen_rounded,
-                        onTap: () => setState(() => _isGridView = !_isGridView),
-                        label: 'Vue',
-                        isActive: true,
+                        icon: _isHandRaised ? Icons.front_hand : Icons.front_hand_outlined,
+                        onTap: _toggleHandRaise,
+                        label: 'Main',
+                        isActive: _isHandRaised,
+                      ),
+                      // Partage d'écran
+                      _buildControlButton(
+                        icon: _isScreenSharing ? Icons.stop_screen_share : Icons.screen_share,
+                        onTap: _toggleScreenSharing,
+                        label: 'Écran',
+                        isActive: _isScreenSharing,
                       ),
                       // Plus d'options
                       _buildControlButton(
@@ -767,6 +863,20 @@ class _JitsiRoomScreenState extends State<JitsiRoomScreen> {
                   _showChatPanel();
                 },
               ),
+              ListTile(
+                leading: Icon(
+                  _isScreenSharing ? Icons.stop_screen_share : Icons.screen_share,
+                  color: _isScreenSharing ? Colors.red : Colors.white,
+                ),
+                title: Text(
+                  _isScreenSharing ? 'Arrêter le partage' : 'Partager l\'écran',
+                  style: TextStyle(color: _isScreenSharing ? Colors.red : Colors.white),
+                ),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _toggleScreenSharing();
+                },
+              ),
               if (_isRecording)
                 ListTile(
                   leading: const Icon(Icons.fiber_manual_record, color: Colors.red),
@@ -837,9 +947,9 @@ class _JitsiRoomScreenState extends State<JitsiRoomScreen> {
                 itemCount: _remoteUids.length + 1,
                 itemBuilder: (context, index) {
                   if (index == 0) {
-                    return _buildParticipantTile('Vous (Animateur)', true, true, _localAudioEnabled);
+                    return _buildParticipantTile('Vous (Animateur)', true, true, _localAudioEnabled, isHandRaised: _isHandRaised);
                   }
-                  return _buildParticipantTile('Participant $index', false, false, true);
+                  return _buildParticipantTile('Participant $index', false, false, true, isHandRaised: _raisedHands.contains(index));
                 },
               ),
             ),
@@ -850,27 +960,57 @@ class _JitsiRoomScreenState extends State<JitsiRoomScreen> {
   }
 
   /// Widget pour un participant dans la liste
-  Widget _buildParticipantTile(String name, bool isMe, bool isHost, bool isUnmuted) {
+  Widget _buildParticipantTile(String name, bool isMe, bool isHost, bool isUnmuted, {bool isHandRaised = false}) {
     return ListTile(
-      leading: CircleAvatar(
-        backgroundColor: isHost ? AppColors.gold : Colors.grey,
-        child: Text(
-          name[0].toUpperCase(),
-          style: TextStyle(
-            color: isHost ? Colors.black : Colors.white,
-            fontWeight: FontWeight.bold,
+      leading: Stack(
+        children: [
+          CircleAvatar(
+            backgroundColor: isHost ? AppColors.gold : Colors.grey,
+            child: Text(
+              name[0].toUpperCase(),
+              style: TextStyle(
+                color: isHost ? Colors.black : Colors.white,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
           ),
-        ),
+          if (isHandRaised)
+            Positioned(
+              right: -2,
+              bottom: -2,
+              child: Container(
+                padding: const EdgeInsets.all(2),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  shape: BoxShape.circle,
+                  border: Border.all(color: AppColors.navy, width: 1),
+                ),
+                child: const Text('✋', style: TextStyle(fontSize: 10)),
+              ),
+            ),
+        ],
       ),
       title: Text(
         name,
         style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w500),
       ),
-      subtitle: isHost ? const Text('Animateur', style: TextStyle(color: AppColors.gold, fontSize: 12)) : null,
-      trailing: Icon(
-        isUnmuted ? Icons.mic_rounded : Icons.mic_off_rounded,
-        color: isUnmuted ? Colors.white : Colors.red,
-        size: 20,
+      subtitle: isHandRaised
+          ? const Text('Main levée', style: TextStyle(color: AppColors.gold, fontSize: 12))
+          : (isHost ? const Text('Animateur', style: TextStyle(color: AppColors.gold, fontSize: 12)) : null),
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (isHandRaised)
+            const Padding(
+              padding: EdgeInsets.only(right: 8),
+              child: Icon(Icons.front_hand, color: AppColors.gold, size: 18),
+            ),
+          Icon(
+            isUnmuted ? Icons.mic_rounded : Icons.mic_off_rounded,
+            color: isUnmuted ? Colors.white : Colors.red,
+            size: 20,
+          ),
+        ],
       ),
     );
   }
