@@ -214,6 +214,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('BORN TO SUCCESS'),
+        leading: Builder(
+          builder: (context) => IconButton(
+            icon: const Icon(Icons.menu),
+            onPressed: () => Scaffold.of(context).openDrawer(),
+          ),
+        ),
         actions: [
           // Menu trois points avec navigation
           PopupMenuButton<int>(
@@ -231,7 +237,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
               const PopupMenuItem(value: 3, child: Text('Library')),
               const PopupMenuItem(value: 4, child: Text('Conferences')),
               const PopupMenuItem(value: 5, child: Text('Profil'), enabled: false),
-              const PopupMenuItem(value: 6, child: Text('Admin')),
+              if (LocalStorageService().getUserRole().toUpperCase() == 'ADMIN')
+                const PopupMenuItem(value: 6, child: Text('Admin')),
               const PopupMenuItem(value: 7, child: Text('Paramètres')),
             ],
           ),

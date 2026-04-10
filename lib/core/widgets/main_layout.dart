@@ -83,15 +83,30 @@ class _MainLayoutState extends State<MainLayout> {
   Future<void> _fetchProfile() async {
     try {
       final response = await ApiService().get('/auth/profile');
+      debugPrint('📡 Profile response: ${response.statusCode}');
+      
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
-        await DatabaseService.saveAuth('user', jsonEncode(data['user']));
-        LocalStorageService.cachedUser = data['user'];
+        final user = data['user'];
+        
+        debugPrint('👤 User data: $user');
+        debugPrint('🔑 Role from server: ${user['role']}');
+        debugPrint('🔑 Role type: ${user['role']?.runtimeType}');
+        
+        await DatabaseService.saveAuth('user', jsonEncode(user));
+        LocalStorageService.cachedUser = user;
+        
         if (mounted) {
+          final role = (user['role'] ?? 'USER').toString().toUpperCase();
+          debugPrint('🎯 Role set to: $role');
+          
           setState(() {
-            _userName = data['user']['name'] ?? 'Utilisateur BTS';
-            _userEmail = data['user']['email'] ?? '';
-            _userRole = data['user']['role'] ?? 'USER';
+            _userName = user['name'] ?? 'Utilisateur BTS';
+            _userEmail = user['email'] ?? '';
+            _userRole = role;
+            // Réinitialiser l'index si hors limites après changement de rôle
+            final maxIndex = (role == 'ADMIN' ? 6 : 5);
+            if (_selectedIndex > maxIndex) _selectedIndex = 0;
           });
         }
       } else if (response.statusCode == 401 || response.statusCode == 403) {
@@ -106,14 +121,22 @@ class _MainLayoutState extends State<MainLayout> {
         );
       }
     } catch (e) {
-      debugPrint('Erreur profil: $e');
+      debugPrint('❌ Erreur profil: $e');
       // Mode hors-ligne : charger depuis SQLite
       final cached = LocalStorageService.cachedUser;
+      debugPrint('📦 Cached user: $cached');
+      
       if (cached != null && mounted) {
+        final newRole = (cached['role'] ?? 'USER').toString().toUpperCase();
+        debugPrint('🔑 Role from cache: $newRole');
+        
         setState(() {
           _userName = cached['name'] ?? 'Utilisateur BTS';
           _userEmail = cached['email'] ?? '';
-          _userRole = cached['role'] ?? 'USER';
+          _userRole = newRole;
+          // Réinitialiser l'index si hors limites après changement de rôle
+          final maxIndex = (newRole == 'ADMIN' ? 6 : 5);
+          if (_selectedIndex > maxIndex) _selectedIndex = 0;
         });
       }
     }
@@ -128,18 +151,55 @@ class _MainLayoutState extends State<MainLayout> {
       ConferenceScreen(onNavigate: _onItemTapped),
       ProfileScreen(onNavigate: _onItemTapped),
     ];
-    if (_userRole == 'ADMIN') {
+    debugPrint('🔍 _pages getter - _userRole: $_userRole, isAdmin: ${_userRole.toUpperCase() == 'ADMIN'}');
+    if (_userRole.toUpperCase() == 'ADMIN') {
       pages.add(AdminDashboardScreen(onNavigate: _onItemTapped));
+      debugPrint('👑 Admin page ajoutée - Total pages: ${pages.length}');
     }
     return pages;
   }
+  
+  /// Récupère la page à l'index demandé avec vérification ADMIN
+  Widget _getPageAt(int index) {
+    final pages = _pages;
+    
+    // Log pour debug
+    debugPrint('📱 getPageAt: index=$index, _userRole=$_userRole, totalPages=${pages.length}');
+    
+    // Sécurité: index hors limites
+    if (index < 0 || index >= pages.length) {
+      debugPrint('⚠️ Index hors limites, retour au Dashboard');
+      return pages[0];
+    }
+    
+    // Vérification spéciale pour Admin (index 6)
+    if (index == 6 && _userRole.toUpperCase() != 'ADMIN') {
+      debugPrint('🚫 Accès Admin refusé - rôle: $_userRole');
+      return pages[0]; // Retour au Dashboard
+    }
+    
+    return pages[index];
+  }
 
   void _onItemTapped(int index) {
+    debugPrint('👆 _onItemTapped called with index: $index, _userRole: $_userRole');
+    
     // Paramètres (index 7) est géré séparément
     if (index == 7) {
       _openSettings();
       return;
     }
+    
+    // Vérifier l'accès Admin - index 6 est réservé aux ADMIN
+    final isAdmin = _userRole.toUpperCase() == 'ADMIN';
+    debugPrint('🔐 Checking access: index=$index, isAdmin=$isAdmin');
+    
+    if (index == 6 && !isAdmin) {
+      debugPrint('🚫 Accès refusé - Rôle requis: ADMIN, Rôle actuel: $_userRole');
+      return; // Ne rien faire si l'utilisateur n'est pas admin
+    }
+    
+    debugPrint('✅ Navigation autorisée vers index: $index');
     setState(() {
       _selectedIndex = index;
     });
@@ -181,7 +241,7 @@ class _MainLayoutState extends State<MainLayout> {
                 child: Icon(Icons.person, color: AppColors.navy),
               ),
             ),
-            if (_userRole == 'ADMIN')
+            if (_userRole.toUpperCase() == 'ADMIN')
               ListTile(
                 leading: const Icon(Icons.admin_panel_settings_rounded, color: AppColors.gold),
                 title: const Text('PANEL ADMIN', style: TextStyle(color: AppColors.gold, fontWeight: FontWeight.bold)),
@@ -238,7 +298,7 @@ class _MainLayoutState extends State<MainLayout> {
             ),
           ),
           Expanded(
-            child: _pages[_selectedIndex],
+            child: _getPageAt(_selectedIndex),
           ),
         ],
       ),
@@ -248,26 +308,33 @@ class _MainLayoutState extends State<MainLayout> {
             top: BorderSide(color: AppColors.white.withOpacity(0.05), width: 1),
           ),
         ),
-        child: BottomNavigationBar(
-          items: [
-            const BottomNavigationBarItem(icon: Icon(Icons.dashboard_rounded), label: 'Dashboard'),
-            const BottomNavigationBarItem(icon: Icon(Icons.emoji_events_rounded), label: 'Goals'),
-            const BottomNavigationBarItem(icon: Icon(Icons.calendar_month_rounded), label: 'Planning'),
-            const BottomNavigationBarItem(icon: Icon(Icons.library_books_rounded), label: 'Library'),
-            const BottomNavigationBarItem(icon: Icon(Icons.people_alt_rounded), label: 'Conferences'),
-            const BottomNavigationBarItem(icon: Icon(Icons.person_rounded), label: 'Profil'),
-            if (_userRole == 'ADMIN')
-              const BottomNavigationBarItem(icon: Icon(Icons.admin_panel_settings_rounded), label: 'Admin'),
-          ],
-          currentIndex: _selectedIndex,
-          onTap: _onItemTapped,
-          type: BottomNavigationBarType.fixed,
-          backgroundColor: AppColors.darkBlue,
-          selectedItemColor: AppColors.gold,
-          unselectedItemColor: AppColors.grey.withOpacity(0.5),
-          showUnselectedLabels: true,
-          selectedFontSize: 12,
-          unselectedFontSize: 12,
+        child: Builder(
+          builder: (context) {
+            final items = [
+              const BottomNavigationBarItem(icon: Icon(Icons.dashboard_rounded), label: 'Dashboard'),
+              const BottomNavigationBarItem(icon: Icon(Icons.emoji_events_rounded), label: 'Goals'),
+              const BottomNavigationBarItem(icon: Icon(Icons.calendar_month_rounded), label: 'Planning'),
+              const BottomNavigationBarItem(icon: Icon(Icons.library_books_rounded), label: 'Library'),
+              const BottomNavigationBarItem(icon: Icon(Icons.people_alt_rounded), label: 'Conferences'),
+              const BottomNavigationBarItem(icon: Icon(Icons.person_rounded), label: 'Profil'),
+              if (_userRole.toUpperCase() == 'ADMIN')
+                const BottomNavigationBarItem(icon: Icon(Icons.admin_panel_settings_rounded), label: 'Admin'),
+            ];
+            // Protéger contre l'index hors limites
+            final safeIndex = _selectedIndex.clamp(0, items.length - 1);
+            return BottomNavigationBar(
+              items: items,
+              currentIndex: safeIndex,
+              onTap: _onItemTapped,
+              type: BottomNavigationBarType.fixed,
+              backgroundColor: AppColors.darkBlue,
+              selectedItemColor: AppColors.gold,
+              unselectedItemColor: AppColors.grey.withOpacity(0.5),
+              showUnselectedLabels: true,
+              selectedFontSize: 12,
+              unselectedFontSize: 12,
+            );
+          },
         ),
       ),
     );

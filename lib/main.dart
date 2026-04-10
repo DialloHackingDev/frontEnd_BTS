@@ -8,6 +8,7 @@ import 'core/network/api_service.dart';
 import 'core/widgets/main_layout.dart';
 import 'features/auth/screens/login_screen.dart';
 import 'features/splash/splash_screen.dart';
+import 'core/services/data_persistence_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -15,6 +16,8 @@ void main() async {
   try {
     await DatabaseService.db;
     await LocalStorageService.loadCache();
+    // Initialiser le service de persistance des données
+    await DataPersistenceService().initialize();
   } catch (e) {
     debugPrint('DB init error: $e');
   }
@@ -51,8 +54,8 @@ class _AuthGateState extends State<AuthGate> {
   }
 
   Future<void> _checkAuth() async {
-    // Lire le token depuis le cache mémoire (chargé au démarrage)
-    final token = LocalStorageService.cachedToken;
+    // Charger le token depuis la DB (au cas où le cache mémoire est vide)
+    final token = await LocalStorageService().getTokenAsync();
 
     if (token == null) {
       _goToLogin();
@@ -66,15 +69,29 @@ class _AuthGateState extends State<AuthGate> {
         await DatabaseService.saveAuth('user', jsonEncode(data['user']));
         LocalStorageService.cachedUser = data['user'];
         _goToMain();
-      } else {
+      } else if (response.statusCode == 401 || response.statusCode == 403) {
+        // Token invalide, on efface tout
         await DatabaseService.clearAll();
         LocalStorageService.cachedToken = null;
         LocalStorageService.cachedUser = null;
         _goToLogin();
+      } else {
+        // Autre erreur serveur, on essaie le mode offline
+        final cachedUser = await LocalStorageService().getUserAsync();
+        if (cachedUser != null) {
+          _goToMain();
+        } else {
+          _goToLogin();
+        }
       }
     } catch (e) {
-      // Hors ligne : on fait confiance au cache SQLite
-      _goToMain();
+      // Hors ligne : on vérifie qu'on a un user en cache
+      final cachedUser = await LocalStorageService().getUserAsync();
+      if (cachedUser != null) {
+        _goToMain();
+      } else {
+        _goToLogin();
+      }
     }
   }
 

@@ -47,6 +47,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
   void initState() {
     super.initState();
     _userRole = LocalStorageService().getUserRole();
+    debugPrint('📚 LibraryScreen - Role loaded: "$_userRole" | isAdmin: ${_userRole.toUpperCase() == 'ADMIN'}');
     _initCacheService();
     _fetchLibrary(reset: true);
     _scrollController.addListener(_onScroll);
@@ -81,9 +82,15 @@ class _LibraryScreenState extends State<LibraryScreen> {
   }
 
   Future<void> _checkLocalFiles(List<LibraryItem> items) async {
+    // Collecter tous les chemins d'abord, puis un seul setState
+    final Map<int, String?> paths = {};
     for (final item in items) {
       final path = await _downloadService.getLocalPath(item.id, item.type);
-      if (mounted) setState(() => _localPaths[item.id] = path);
+      paths[item.id] = path;
+    }
+    // Un seul setState pour toutes les mises à jour
+    if (mounted) {
+      setState(() => _localPaths.addAll(paths));
     }
   }
 
@@ -122,6 +129,8 @@ class _LibraryScreenState extends State<LibraryScreen> {
   }
 
   Future<void> _fetchLibrary({bool reset = false}) async {
+    debugPrint('📚 _fetchLibrary called - reset: $reset, page: $_page');
+    
     if (reset) {
       _page = 1;
       _hasMore = true;
@@ -134,10 +143,15 @@ class _LibraryScreenState extends State<LibraryScreen> {
     }
 
     try {
+      debugPrint('🌐 Calling API: /library?page=$_page&limit=10');
       final response = await _apiService.get('/library', queryParams: {'page': '$_page', 'limit': '10'});
+      debugPrint('📡 Response status: ${response.statusCode}');
+      
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         final List<dynamic> raw = data['data'] ?? data;
+        debugPrint('📦 Received ${raw.length} items');
+        
         if (mounted) {
           final newItems = raw.map((json) => LibraryItem.fromJson(json)).toList();
           setState(() {
@@ -150,13 +164,25 @@ class _LibraryScreenState extends State<LibraryScreen> {
           });
           _checkLocalFiles(newItems);
         }
+      } else {
+        debugPrint('❌ Error response: ${response.statusCode} - ${response.body}');
+        if (mounted) {
+          setState(() {
+            _isLoading = false;
+            _isLoadingMore = false;
+            _errorMessage = 'Erreur serveur: ${response.statusCode}';
+          });
+        }
       }
-    } catch (e) {
+    } catch (e, stackTrace) {
+      debugPrint('❌ Exception in _fetchLibrary: $e');
+      debugPrint('📍 Stack trace: $stackTrace');
+      
       if (mounted) {
         setState(() {
           _isLoading = false;
           _isLoadingMore = false;
-          if (_items.isEmpty) _errorMessage = 'Connexion requise pour la première fois.';
+          _errorMessage = 'Erreur: $e';
         });
       }
     }
@@ -192,7 +218,13 @@ class _LibraryScreenState extends State<LibraryScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('BORN TO SUCCESS'),
+        title: Text('BORN TO SUCCESS ($_userRole)'),
+        leading: Builder(
+          builder: (context) => IconButton(
+            icon: const Icon(Icons.menu),
+            onPressed: () => Scaffold.of(context).openDrawer(),
+          ),
+        ),
         actions: [
           // Menu trois points avec navigation
           PopupMenuButton<int>(
@@ -210,7 +242,8 @@ class _LibraryScreenState extends State<LibraryScreen> {
               const PopupMenuItem(value: 3, child: Text('Library'), enabled: false),
               const PopupMenuItem(value: 4, child: Text('Conferences')),
               const PopupMenuItem(value: 5, child: Text('Profil')),
-              const PopupMenuItem(value: 6, child: Text('Admin')),
+              if (_userRole.toUpperCase() == 'ADMIN')
+                const PopupMenuItem(value: 6, child: Text('Admin')),
               const PopupMenuItem(value: 7, child: Text('Paramètres')),
             ],
           ),
@@ -294,7 +327,20 @@ class _LibraryScreenState extends State<LibraryScreen> {
                         Center(
                           child: Padding(
                             padding: const EdgeInsets.only(top: 50),
-                            child: Text(_errorMessage!, style: const TextStyle(color: AppColors.grey)),
+                            child: Column(
+                              children: [
+                                Text(_errorMessage!, style: const TextStyle(color: AppColors.grey)),
+                                const SizedBox(height: 16),
+                                ElevatedButton(
+                                  onPressed: () => _fetchLibrary(reset: true),
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: AppColors.gold,
+                                    foregroundColor: AppColors.navy,
+                                  ),
+                                  child: const Text('Réessayer'),
+                                ),
+                              ],
+                            ),
                           ),
                         )
                       else if (_filteredItems.isEmpty && !_isLoading)
@@ -347,7 +393,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
               ],
             ),
       ),
-      floatingActionButton: _userRole == 'ADMIN' 
+      floatingActionButton: _userRole.toUpperCase() == 'ADMIN' 
         ? FloatingActionButton(
             backgroundColor: AppColors.gold,
             onPressed: () async {

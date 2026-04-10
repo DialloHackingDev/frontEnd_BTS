@@ -29,6 +29,7 @@ class _ConferenceScreenState extends State<ConferenceScreen> with SingleTickerPr
   void initState() {
     super.initState();
     _userRole = LocalStorageService().getUserRole();
+    debugPrint('📹 ConferenceScreen - Role loaded: "$_userRole" | isAdmin: ${_userRole.toUpperCase() == 'ADMIN'}');
     _tabController = TabController(length: 2, vsync: this);
     _tabController.addListener(() {
       if (_tabController.indexIsChanging) {
@@ -173,6 +174,111 @@ class _ConferenceScreenState extends State<ConferenceScreen> with SingleTickerPr
     }
   }
 
+  // ── ADMIN: Supprimer une vidéo de conférence ──
+  Future<void> _deleteVideo(ConferenceItem conference) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppColors.navy,
+        title: const Text('SUPPRIMER LA VIDÉO', style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold)),
+        content: Text(
+          'Voulez-vous vraiment supprimer la vidéo "${conference.title}" ?\n\nCette action est irréversible.',
+          style: const TextStyle(color: AppColors.white),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('ANNULER', style: TextStyle(color: AppColors.grey))),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
+            child: const Text('SUPPRIMER'),
+          ),
+        ],
+      ),
+    ) ?? false;
+
+    if (!confirmed) return;
+
+    try {
+      final response = await _apiService.delete('/conferences/${conference.id}/video');
+      if (mounted) {
+        if (response.statusCode == 200) {
+          _fetchHistory();
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Vidéo supprimée ✅'), backgroundColor: Colors.green),
+          );
+        } else {
+          final data = jsonDecode(response.body);
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(data['error'] ?? 'Erreur lors de la suppression'), backgroundColor: Colors.red),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Erreur: $e'), backgroundColor: Colors.red),
+        );
+      }
+    }
+  }
+
+  // ── ADMIN: Modifier le lien vidéo ──
+  Future<void> _editVideoLink(ConferenceItem conference) async {
+    final videoController = TextEditingController(text: conference.videoUrl ?? '');
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppColors.navy,
+        title: const Text('MODIFIER LE LIEN VIDÉO', style: TextStyle(color: AppColors.gold, fontWeight: FontWeight.bold)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: videoController,
+              style: const TextStyle(color: AppColors.white),
+              decoration: const InputDecoration(
+                hintText: 'https://youtube.com/watch?v=...',
+                prefixIcon: Icon(Icons.link_rounded, color: AppColors.gold),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('ANNULER', style: TextStyle(color: AppColors.grey))),
+          ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('MODIFIER')),
+        ],
+      ),
+    ) ?? false;
+
+    if (!confirmed) return;
+
+    try {
+      final response = await _apiService.put(
+        '/conferences/${conference.id}/end',
+        {'videoUrl': videoController.text.trim()},
+      );
+      if (mounted) {
+        if (response.statusCode == 200) {
+          _fetchHistory();
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Lien vidéo mis à jour ✅'), backgroundColor: Colors.green),
+          );
+        } else {
+          final data = jsonDecode(response.body);
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(data['error'] ?? 'Erreur lors de la modification'), backgroundColor: Colors.red),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Erreur: $e'), backgroundColor: Colors.red),
+        );
+      }
+    }
+  }
+
   Future<void> _createRoom() async {
     final titleController = TextEditingController();
     final confirmed = await showDialog<bool>(
@@ -218,6 +324,12 @@ class _ConferenceScreenState extends State<ConferenceScreen> with SingleTickerPr
     return Scaffold(
       appBar: AppBar(
         title: const Text('BORN TO SUCCESS'),
+        leading: Builder(
+          builder: (context) => IconButton(
+            icon: const Icon(Icons.menu),
+            onPressed: () => Scaffold.of(context).openDrawer(),
+          ),
+        ),
         actions: [
           // Menu trois points avec navigation
           PopupMenuButton<int>(
@@ -235,7 +347,8 @@ class _ConferenceScreenState extends State<ConferenceScreen> with SingleTickerPr
               const PopupMenuItem(value: 3, child: Text('Library')),
               const PopupMenuItem(value: 4, child: Text('Conferences'), enabled: false),
               const PopupMenuItem(value: 5, child: Text('Profil')),
-              const PopupMenuItem(value: 6, child: Text('Admin')),
+              if (_userRole.toUpperCase() == 'ADMIN')
+                const PopupMenuItem(value: 6, child: Text('Admin')),
               const PopupMenuItem(value: 7, child: Text('Paramètres')),
             ],
           ),
@@ -362,7 +475,7 @@ class _ConferenceScreenState extends State<ConferenceScreen> with SingleTickerPr
           const SizedBox(height: 16),
           const Text('Créer une Session', style: TextStyle(color: AppColors.white, fontSize: 18, fontWeight: FontWeight.bold)),
           const SizedBox(height: 8),
-          const Text('Lancez votre propre salle Jitsi Meet', style: TextStyle(color: AppColors.grey, fontSize: 13)),
+          const Text('Lancez votre propre salle de conférence vidéo', style: TextStyle(color: AppColors.grey, fontSize: 13)),
           const SizedBox(height: 16),
           ElevatedButton(
             onPressed: _createRoom,
@@ -432,7 +545,7 @@ class _ConferenceScreenState extends State<ConferenceScreen> with SingleTickerPr
               style: TextStyle(color: isLive ? AppColors.navy : AppColors.gold, fontWeight: FontWeight.bold),
             ),
           ),
-          if (isLive && _userRole == 'ADMIN') ...[
+          if (isLive && _userRole.toUpperCase() == 'ADMIN') ...[
             const SizedBox(height: 8),
             OutlinedButton(
               onPressed: () => _endConference(conference),
@@ -442,6 +555,37 @@ class _ConferenceScreenState extends State<ConferenceScreen> with SingleTickerPr
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
               ),
               child: const Text('TERMINER & ENREGISTRER', style: TextStyle(color: Colors.redAccent, fontSize: 12, fontWeight: FontWeight.bold)),
+            ),
+          ],
+          // ── ADMIN: Options pour les vidéos historiques ──
+          if (!isLive && conference.videoUrl != null && _userRole.toUpperCase() == 'ADMIN') ...[
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: () => _editVideoLink(conference),
+                    icon: const Icon(Icons.edit, size: 16, color: AppColors.gold),
+                    label: const Text('MODIFIER', style: TextStyle(color: AppColors.gold, fontSize: 12)),
+                    style: OutlinedButton.styleFrom(
+                      side: const BorderSide(color: AppColors.gold),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: () => _deleteVideo(conference),
+                    icon: const Icon(Icons.delete, size: 16, color: Colors.redAccent),
+                    label: const Text('SUPPRIMER', style: TextStyle(color: Colors.redAccent, fontSize: 12)),
+                    style: OutlinedButton.styleFrom(
+                      side: const BorderSide(color: Colors.redAccent),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    ),
+                  ),
+                ),
+              ],
             ),
           ],
         ],

@@ -4,6 +4,7 @@ import 'package:connectivity_plus/connectivity_plus.dart';
 import '../../../core/res/styles.dart';
 import '../../../core/network/api_service.dart';
 import '../../../core/storage/database_service.dart';
+import '../../../core/storage/local_storage_service.dart';
 import '../../../models/goal.dart';
 
 class GoalsScreen extends StatefulWidget {
@@ -382,6 +383,12 @@ class _GoalsScreenState extends State<GoalsScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('BORN TO SUCCESS'),
+        leading: Builder(
+          builder: (context) => IconButton(
+            icon: const Icon(Icons.menu),
+            onPressed: () => Scaffold.of(context).openDrawer(),
+          ),
+        ),
         actions: [
           if (_pendingCount > 0)
             Padding(
@@ -419,7 +426,8 @@ class _GoalsScreenState extends State<GoalsScreen> {
               const PopupMenuItem(value: 3, child: Text('Library')),
               const PopupMenuItem(value: 4, child: Text('Conferences')),
               const PopupMenuItem(value: 5, child: Text('Profil')),
-              const PopupMenuItem(value: 6, child: Text('Admin')),
+              if (LocalStorageService().getUserRole().toUpperCase() == 'ADMIN')
+                const PopupMenuItem(value: 6, child: Text('Admin')),
               const PopupMenuItem(value: 7, child: Text('Paramètres')),
             ],
           ),

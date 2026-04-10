@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'dart:convert';
+import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:agora_rtc_engine/agora_rtc_engine.dart';
@@ -28,20 +29,214 @@ class _JitsiRoomScreenState extends State<JitsiRoomScreen> {
   bool _isInitializing = true;
   bool _localVideoEnabled = true;
   bool _localAudioEnabled = true;
+  bool _isRecording = false;
   String? _error;
   final List<int> _remoteUids = [];
+  int? _conferenceId; // ID de la conférence pour l'enregistrement
+  
+  // Timer de l'appel
+  Timer? _callTimer;
+  int _callDuration = 0; // en secondes
+  
+  // Mode d'affichage
+  bool _isGridView = true;
+  final TextEditingController _chatController = TextEditingController();
+  final List<Map<String, dynamic>> _chatMessages = [];
+  
+  // Réactions emoji temporaires
+  final List<Map<String, dynamic>> _floatingReactions = [];
+  
+  @override
+  void dispose() {
+    _callTimer?.cancel();
+    _chatController.dispose();
+    _stopRecording();
+    _engine?.leaveChannel();
+    _engine?.release();
+    super.dispose();
+  }
+  
+  /// Démarre le timer de l'appel
+  void _startCallTimer() {
+    _callTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (mounted) {
+        setState(() {
+          _callDuration++;
+        });
+      }
+    });
+  }
+  
+  /// Formate la durée en HH:MM:SS
+  String _formatDuration(int seconds) {
+    final hours = seconds ~/ 3600;
+    final minutes = (seconds % 3600) ~/ 60;
+    final secs = seconds % 60;
+    
+    if (hours > 0) {
+      return '${hours.toString().padLeft(2, '0')}:${minutes.toString().padLeft(2, '0')}:${secs.toString().padLeft(2, '0')}';
+    }
+    return '${minutes.toString().padLeft(2, '0')}:${secs.toString().padLeft(2, '0')}';
+  }
+  
+  /// Affiche la boîte de dialogue pour quitter
+  Future<void> _showLeaveDialog() async {
+    final shouldLeave = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppColors.navy,
+        title: const Text('Quitter la réunion ?', style: TextStyle(color: Colors.white)),
+        content: const Text(
+          'Vous allez quitter la salle de conférence.',
+          style: TextStyle(color: Colors.white70),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('ANNULER', style: TextStyle(color: AppColors.grey)),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
+            child: const Text('QUITTER'),
+          ),
+        ],
+      ),
+    );
+    
+    if (shouldLeave == true) {
+      _leaveChannel();
+    }
+  }
+  
+  /// Construit un bouton d'icône circulaire
+  Widget _buildIconButton(IconData icon, {required VoidCallback onTap, Color? bgColor, Color? iconColor, double size = 24}) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: 48,
+        height: 48,
+        decoration: BoxDecoration(
+          color: bgColor ?? Colors.black26,
+          shape: BoxShape.circle,
+        ),
+        child: Icon(icon, color: iconColor ?? Colors.white, size: size),
+      ),
+    );
+  }
+  
+  /// Construit un bouton de contrôle avec label
+  Widget _buildControlButton({
+    required IconData icon,
+    required VoidCallback onTap,
+    required String label,
+    bool isActive = true,
+    Color? activeColor,
+    Color? inactiveColor = Colors.redAccent,
+  }) {
+    final bgColor = isActive 
+        ? (activeColor ?? Colors.black26)
+        : (inactiveColor ?? Colors.redAccent);
+    
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        GestureDetector(
+          onTap: onTap,
+          child: Container(
+            width: 56,
+            height: 56,
+            decoration: BoxDecoration(
+              color: bgColor,
+              shape: BoxShape.circle,
+            ),
+            child: Icon(
+              icon, 
+              color: isActive ? Colors.white : Colors.white, 
+              size: 26,
+            ),
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          label,
+          style: TextStyle(
+            color: Colors.white.withOpacity(0.8),
+            fontSize: 11,
+          ),
+        ),
+      ],
+    );
+  }
+  
+  /// Envoie une réaction emoji
+  void _sendReaction(String emoji) {
+    // Afficher localement
+    setState(() {
+      _floatingReactions.add({
+        'emoji': emoji,
+        'x': 0.5 + (0.2 * (0.5 - (DateTime.now().millisecond % 100) / 100)),
+        'y': 0.8,
+        'time': DateTime.now(),
+      });
+    });
+    
+    // Supprimer après animation
+    Future.delayed(const Duration(seconds: 2), () {
+      if (mounted) {
+        setState(() {
+          if (_floatingReactions.isNotEmpty) {
+            _floatingReactions.removeAt(0);
+          }
+        });
+      }
+    });
+    
+    // TODO: Envoyer aux autres participants via Agora
+  }
 
   @override
   void initState() {
     super.initState();
-    _initAgora();
+    _initConferenceAndRecording();
   }
 
-  @override
-  void dispose() {
-    _engine?.leaveChannel();
-    _engine?.release();
-    super.dispose();
+  /// Initialise la conférence et démarre l'enregistrement automatique
+  Future<void> _initConferenceAndRecording() async {
+    await _initAgora();
+    if (_error == null && mounted) {
+      await _startRecording();
+    }
+  }
+
+  /// Démarre l'enregistrement automatique
+  Future<void> _startRecording() async {
+    try {
+      // Extraire l'ID de conférence du roomId (format: bts-{timestamp}-{random})
+      // Ou utiliser une autre méthode pour obtenir l'ID
+      final response = await ApiService().post('/conferences', {
+        'title': widget.title,
+      });
+
+      if (response.statusCode == 201) {
+        final data = jsonDecode(response.body);
+        _conferenceId = data['id'];
+
+        // Démarrer l'enregistrement Agora
+        final recordingRes = await ApiService().post('/agora/recording/start', {
+          'conferenceId': _conferenceId,
+          'channelName': _channelName,
+        });
+
+        if (recordingRes.statusCode == 200) {
+          setState(() => _isRecording = true);
+          debugPrint('🎥 Enregistrement démarré pour conférence $_conferenceId');
+        }
+      }
+    } catch (e) {
+      debugPrint('⚠️ Impossible de démarrer l\'enregistrement: $e');
+      // Ne pas bloquer la conférence si l'enregistrement échoue
+    }
   }
 
   // Agora accepte lettres, chiffres, tirets, underscores — max 64 chars
@@ -92,6 +287,7 @@ class _JitsiRoomScreenState extends State<JitsiRoomScreen> {
       _engine!.registerEventHandler(RtcEngineEventHandler(
         onJoinChannelSuccess: (connection, elapsed) {
           debugPrint('Agora: canal rejoint avec succès');
+          _startCallTimer(); // Démarrer le timer de l'appel
           if (mounted) setState(() => _isInitializing = false);
         },
         onUserJoined: (connection, uid, elapsed) {
@@ -150,8 +346,29 @@ class _JitsiRoomScreenState extends State<JitsiRoomScreen> {
   }
 
   Future<void> _leaveChannel() async {
+    // Arrêter l'enregistrement avant de quitter
+    await _stopRecording();
     await _engine?.leaveChannel();
     if (mounted) Navigator.pop(context);
+  }
+
+  /// Arrête l'enregistrement automatique
+  Future<void> _stopRecording() async {
+    if (_conferenceId != null && _isRecording) {
+      try {
+        final response = await ApiService().post('/agora/recording/stop', {
+          'conferenceId': _conferenceId,
+        });
+
+        if (response.statusCode == 200) {
+          final data = jsonDecode(response.body);
+          debugPrint('✅ Enregistrement arrêté. Vidéo: ${data['videoUrl']}');
+          setState(() => _isRecording = false);
+        }
+      } catch (e) {
+        debugPrint('⚠️ Erreur arrêt enregistrement: $e');
+      }
+    }
   }
 
   @override
@@ -274,97 +491,560 @@ class _JitsiRoomScreenState extends State<JitsiRoomScreen> {
           ),
         ),
 
-        // Header
+        // Header moderne style Meet
         Positioned(
           top: 0, left: 0, right: 0,
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [Colors.black.withOpacity(0.8), Colors.transparent],
-              ),
-            ),
-            child: Row(
-              children: [
-                IconButton(
-                  icon: const Icon(Icons.arrow_back_rounded, color: Colors.white),
-                  onPressed: _leaveChannel,
-                ),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(widget.title,
-                          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15),
-                          overflow: TextOverflow.ellipsis),
-                      Row(children: [
-                        const Icon(Icons.circle, color: Colors.red, size: 8),
-                        const SizedBox(width: 4),
-                        Text(
-                          _remoteUids.isEmpty ? 'EN ATTENTE' : '${_remoteUids.length + 1} PARTICIPANTS',
-                          style: const TextStyle(color: Colors.red, fontSize: 10, fontWeight: FontWeight.bold),
-                        ),
-                      ]),
-                    ],
+          child: SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              child: Row(
+                children: [
+                  // Bouton retour
+                  _buildIconButton(
+                    Icons.arrow_back_ios_rounded,
+                    onTap: _showLeaveDialog,
+                    bgColor: Colors.black26,
                   ),
-                ),
-              ],
+                  const SizedBox(width: 12),
+                  // Info salle
+                  Expanded(
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: Colors.black26,
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            widget.title,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w600,
+                              fontSize: 14,
+                            ),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          const SizedBox(height: 2),
+                          Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Container(
+                                width: 6,
+                                height: 6,
+                                decoration: BoxDecoration(
+                                  color: _isRecording ? Colors.red : (_remoteUids.isEmpty ? Colors.orange : Colors.green),
+                                  shape: BoxShape.circle,
+                                ),
+                              ),
+                              const SizedBox(width: 6),
+                              Text(
+                                _isRecording
+                                    ? 'Enregistrement...'
+                                    : (_remoteUids.isEmpty ? 'En attente' : '${_remoteUids.length + 1} participants'),
+                                style: TextStyle(
+                                  color: Colors.white.withOpacity(0.8),
+                                  fontSize: 11,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  // Horloge
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: Colors.black26,
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Text(
+                      _formatDuration(_callDuration),
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         ),
 
-        // Boutons de contrôle
+        // Réactions emoji flottantes
+        ..._buildFloatingReactions(),
+        
+        // Contrôles centrés en bas style Meet
         Positioned(
-          bottom: 30, left: 0, right: 0,
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              // Micro
-              _buildControlButton(
-                icon: _localAudioEnabled ? Icons.mic_rounded : Icons.mic_off_rounded,
-                color: _localAudioEnabled ? Colors.white : Colors.redAccent,
-                bgColor: Colors.black54,
-                onTap: _toggleAudio,
+          bottom: 30,
+          left: 16,
+          right: 16,
+          child: Container(
+            padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+            decoration: BoxDecoration(
+              color: Colors.black.withOpacity(0.6),
+              borderRadius: BorderRadius.circular(24),
+            ),
+            child: SafeArea(
+              top: false,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Barre de réactions rapides
+                  SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        _buildReactionButton('❤️'),
+                        _buildReactionButton('👍'),
+                        _buildReactionButton('👏'),
+                        _buildReactionButton('😂'),
+                        _buildReactionButton('😮'),
+                        _buildReactionButton('😢'),
+                        _buildReactionButton('🤔'),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  // Barre de contrôles principaux
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                    children: [
+                      // Micro
+                      _buildControlButton(
+                        icon: _localAudioEnabled ? Icons.mic_rounded : Icons.mic_off_rounded,
+                        onTap: _toggleAudio,
+                        label: 'Micro',
+                        isActive: _localAudioEnabled,
+                      ),
+                      // Caméra
+                      _buildControlButton(
+                        icon: _localVideoEnabled ? Icons.videocam_rounded : Icons.videocam_off_rounded,
+                        onTap: _toggleVideo,
+                        label: 'Vidéo',
+                        isActive: _localVideoEnabled,
+                      ),
+                      // Épingler/Grille
+                      _buildControlButton(
+                        icon: _isGridView ? Icons.grid_view_rounded : Icons.fullscreen_rounded,
+                        onTap: () => setState(() => _isGridView = !_isGridView),
+                        label: 'Vue',
+                        isActive: true,
+                      ),
+                      // Plus d'options
+                      _buildControlButton(
+                        icon: Icons.more_vert_rounded,
+                        onTap: _showMoreOptions,
+                        label: 'Plus',
+                        isActive: true,
+                      ),
+                      // Quitter (gros bouton rouge)
+                      GestureDetector(
+                        onTap: _showLeaveDialog,
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Container(
+                              width: 60,
+                              height: 60,
+                              decoration: BoxDecoration(
+                                color: Colors.redAccent,
+                                shape: BoxShape.circle,
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.redAccent.withOpacity(0.4),
+                                    blurRadius: 12,
+                                    spreadRadius: 2,
+                                  ),
+                                ],
+                              ),
+                              child: const Icon(
+                                Icons.call_end_rounded,
+                                color: Colors.white,
+                                size: 28,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              'Raccrocher',
+                              style: TextStyle(
+                                color: Colors.white.withOpacity(0.8),
+                                fontSize: 11,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
               ),
-              const SizedBox(width: 20),
-              // Raccrocher
-              _buildControlButton(
-                icon: Icons.call_end_rounded,
-                color: Colors.white,
-                bgColor: Colors.redAccent,
-                size: 64,
-                onTap: _leaveChannel,
-              ),
-              const SizedBox(width: 20),
-              // Caméra
-              _buildControlButton(
-                icon: _localVideoEnabled ? Icons.videocam_rounded : Icons.videocam_off_rounded,
-                color: _localVideoEnabled ? Colors.white : Colors.redAccent,
-                bgColor: Colors.black54,
-                onTap: _toggleVideo,
-              ),
-            ],
+            ),
           ),
         ),
       ],
     );
   }
 
-  Widget _buildControlButton({
-    required IconData icon,
-    required Color color,
-    required Color bgColor,
-    required VoidCallback onTap,
-    double size = 52,
-  }) {
+  /// Construit les réactions emoji flottantes
+  List<Widget> _buildFloatingReactions() {
+    return _floatingReactions.map((reaction) {
+      return Positioned(
+        left: reaction['x'] * MediaQuery.of(context).size.width,
+        bottom: 150 + (DateTime.now().difference(reaction['time']).inMilliseconds / 10),
+        child: Opacity(
+          opacity: 1 - (DateTime.now().difference(reaction['time']).inMilliseconds / 2000),
+          child: Text(
+            reaction['emoji'],
+            style: const TextStyle(fontSize: 32),
+          ),
+        ),
+      );
+    }).toList();
+  }
+
+  /// Bouton de réaction emoji
+  Widget _buildReactionButton(String emoji) {
     return GestureDetector(
-      onTap: onTap,
+      onTap: () => _sendReaction(emoji),
       child: Container(
-        width: size, height: size,
-        decoration: BoxDecoration(color: bgColor, shape: BoxShape.circle),
-        child: Icon(icon, color: color, size: size * 0.45),
+        margin: const EdgeInsets.symmetric(horizontal: 4),
+        padding: const EdgeInsets.all(8),
+        decoration: BoxDecoration(
+          color: Colors.white10,
+          shape: BoxShape.circle,
+        ),
+        child: Text(emoji, style: const TextStyle(fontSize: 20)),
+      ),
+    );
+  }
+
+  /// Affiche le menu "Plus d'options"
+  void _showMoreOptions() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: AppColors.navy,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Indicateur de drag
+              Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.grey,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              const SizedBox(height: 20),
+              ListTile(
+                leading: const Icon(Icons.people_outline, color: Colors.white),
+                title: const Text('Participants', style: TextStyle(color: Colors.white)),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _showParticipantsPanel();
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.chat_bubble_outline, color: Colors.white),
+                title: const Text('Chat', style: TextStyle(color: Colors.white)),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _showChatPanel();
+                },
+              ),
+              if (_isRecording)
+                ListTile(
+                  leading: const Icon(Icons.fiber_manual_record, color: Colors.red),
+                  title: const Text('Enregistrement en cours...', style: TextStyle(color: Colors.red)),
+                  trailing: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: Colors.red.withOpacity(0.2),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: const Text('LIVE', style: TextStyle(color: Colors.red, fontSize: 10)),
+                  ),
+                ),
+              ListTile(
+                leading: const Icon(Icons.info_outline, color: Colors.white),
+                title: const Text('Infos de la réunion', style: TextStyle(color: Colors.white)),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _showMeetingInfo();
+                },
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Affiche le panneau des participants
+  void _showParticipantsPanel() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: AppColors.navy,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => DraggableScrollableSheet(
+        initialChildSize: 0.6,
+        minChildSize: 0.3,
+        maxChildSize: 0.9,
+        expand: false,
+        builder: (_, controller) => Column(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(16),
+              child: Row(
+                children: [
+                  Text(
+                    'Participants (${_remoteUids.length + 1})',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const Spacer(),
+                  IconButton(
+                    icon: const Icon(Icons.close, color: Colors.white),
+                    onPressed: () => Navigator.pop(ctx),
+                  ),
+                ],
+              ),
+            ),
+            Expanded(
+              child: ListView.builder(
+                controller: controller,
+                itemCount: _remoteUids.length + 1,
+                itemBuilder: (context, index) {
+                  if (index == 0) {
+                    return _buildParticipantTile('Vous (Animateur)', true, true, _localAudioEnabled);
+                  }
+                  return _buildParticipantTile('Participant $index', false, false, true);
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Widget pour un participant dans la liste
+  Widget _buildParticipantTile(String name, bool isMe, bool isHost, bool isUnmuted) {
+    return ListTile(
+      leading: CircleAvatar(
+        backgroundColor: isHost ? AppColors.gold : Colors.grey,
+        child: Text(
+          name[0].toUpperCase(),
+          style: TextStyle(
+            color: isHost ? Colors.black : Colors.white,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+      ),
+      title: Text(
+        name,
+        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w500),
+      ),
+      subtitle: isHost ? const Text('Animateur', style: TextStyle(color: AppColors.gold, fontSize: 12)) : null,
+      trailing: Icon(
+        isUnmuted ? Icons.mic_rounded : Icons.mic_off_rounded,
+        color: isUnmuted ? Colors.white : Colors.red,
+        size: 20,
+      ),
+    );
+  }
+
+  /// Affiche le panneau de chat
+  void _showChatPanel() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: AppColors.navy,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => DraggableScrollableSheet(
+        initialChildSize: 0.7,
+        minChildSize: 0.4,
+        maxChildSize: 0.95,
+        expand: false,
+        builder: (_, controller) => Column(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(16),
+              child: Row(
+                children: [
+                  const Text(
+                    'Chat',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const Spacer(),
+                  IconButton(
+                    icon: const Icon(Icons.close, color: Colors.white),
+                    onPressed: () => Navigator.pop(ctx),
+                  ),
+                ],
+              ),
+            ),
+            Expanded(
+              child: _chatMessages.isEmpty
+                  ? Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.chat_bubble_outline, color: Colors.grey, size: 48),
+                          SizedBox(height: 16),
+                          Text(
+                            'Aucun message',
+                            style: TextStyle(color: Colors.grey),
+                          ),
+                        ],
+                      ),
+                    )
+                  : ListView.builder(
+                      controller: controller,
+                      itemCount: _chatMessages.length,
+                      itemBuilder: (context, index) {
+                        final msg = _chatMessages[index];
+                        return ListTile(
+                          leading: CircleAvatar(
+                            radius: 16,
+                            backgroundColor: AppColors.gold,
+                            child: Text(
+                              msg['sender'][0].toUpperCase(),
+                              style: const TextStyle(fontSize: 12, color: Colors.black),
+                            ),
+                          ),
+                          title: Text(
+                            msg['sender'],
+                            style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold),
+                          ),
+                          subtitle: Text(
+                            msg['message'],
+                            style: const TextStyle(color: Colors.white70, fontSize: 13),
+                          ),
+                        );
+                      },
+                    ),
+            ),
+            // Zone de saisie
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.black12,
+                border: Border(top: BorderSide(color: Colors.white12)),
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _chatController,
+                      style: const TextStyle(color: Colors.white),
+                      decoration: InputDecoration(
+                        hintText: 'Envoyer un message...',
+                        hintStyle: TextStyle(color: Colors.grey),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(24),
+                          borderSide: BorderSide.none,
+                        ),
+                        filled: true,
+                        fillColor: Colors.white10,
+                        contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                      ),
+                    ),
+                  ),
+                  SizedBox(width: 8),
+                  GestureDetector(
+                    onTap: _sendChatMessage,
+                    child: Container(
+                      padding: EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: AppColors.gold,
+                        shape: BoxShape.circle,
+                      ),
+                      child: Icon(Icons.send, color: Colors.black, size: 20),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Envoie un message dans le chat
+  void _sendChatMessage() {
+    if (_chatController.text.trim().isEmpty) return;
+    setState(() {
+      _chatMessages.add({
+        'sender': 'Vous',
+        'message': _chatController.text.trim(),
+        'time': DateTime.now(),
+      });
+      _chatController.clear();
+    });
+  }
+
+  /// Affiche les infos de la réunion
+  void _showMeetingInfo() {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppColors.navy,
+        title: const Text('Infos de la réunion', style: TextStyle(color: Colors.white)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Titre:', style: TextStyle(color: Colors.grey, fontSize: 12)),
+            Text(widget.title, style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 12),
+            Text('ID de la salle:', style: TextStyle(color: Colors.grey, fontSize: 12)),
+            SelectableText(
+              widget.roomId,
+              style: const TextStyle(color: Colors.white, fontFamily: 'monospace'),
+            ),
+            const SizedBox(height: 12),
+            Text('Durée:', style: TextStyle(color: Colors.grey, fontSize: 12)),
+            Text(_formatDuration(_callDuration), style: TextStyle(color: Colors.white)),
+            const SizedBox(height: 12),
+            Text('Participants:', style: TextStyle(color: Colors.grey, fontSize: 12)),
+            Text('${_remoteUids.length + 1}', style: TextStyle(color: Colors.white)),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('FERMER', style: TextStyle(color: AppColors.gold)),
+          ),
+        ],
       ),
     );
   }

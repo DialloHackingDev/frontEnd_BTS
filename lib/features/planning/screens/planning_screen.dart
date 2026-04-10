@@ -25,6 +25,7 @@ class _PlanningScreenState extends State<PlanningScreen> {
   Map<DateTime, List<Goal>> _personalGoals = {};
   bool _isLoading = false;
   String _userRole = 'USER';
+  DateTime? _lastFetchTime; // Pour éviter les appels trop fréquents
 
   @override
   void initState() {
@@ -43,6 +44,13 @@ class _PlanningScreenState extends State<PlanningScreen> {
   }
 
   Future<void> _fetchEvents() async {
+    // Protection anti-spam: max un appel toutes les 2 secondes
+    if (_lastFetchTime != null) {
+      final diff = DateTime.now().difference(_lastFetchTime!);
+      if (diff.inSeconds < 2) return;
+    }
+    _lastFetchTime = DateTime.now();
+    
     try {
       final response = await _apiService.get('/events', queryParams: {
         'month': '${_focusedDay.month}',
@@ -101,8 +109,14 @@ class _PlanningScreenState extends State<PlanningScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('BORN TO SUCCESS'),
+        leading: Builder(
+          builder: (context) => IconButton(
+            icon: const Icon(Icons.menu),
+            onPressed: () => Scaffold.of(context).openDrawer(),
+          ),
+        ),
         actions: [
-          if (_userRole == 'ADMIN')
+          if (_userRole.toUpperCase() == 'ADMIN')
             IconButton(
               icon: const Icon(Icons.add_rounded, color: AppColors.gold),
               onPressed: () async {
@@ -129,7 +143,8 @@ class _PlanningScreenState extends State<PlanningScreen> {
               const PopupMenuItem(value: 3, child: Text('Library')),
               const PopupMenuItem(value: 4, child: Text('Conferences')),
               const PopupMenuItem(value: 5, child: Text('Profil')),
-              const PopupMenuItem(value: 6, child: Text('Admin')),
+              if (_userRole.toUpperCase() == 'ADMIN')
+                const PopupMenuItem(value: 6, child: Text('Admin')),
               const PopupMenuItem(value: 7, child: Text('Paramètres')),
             ],
           ),
@@ -274,7 +289,7 @@ class _PlanningScreenState extends State<PlanningScreen> {
     else if (event.isPast) { status = 'Terminé'; statusColor = AppColors.grey; }
 
     return GestureDetector(
-      onLongPress: _userRole == 'ADMIN' ? () => _showEventOptions(event) : null,
+      onLongPress: _userRole.toUpperCase() == 'ADMIN' ? () => _showEventOptions(event) : null,
       child: Container(
         margin: const EdgeInsets.only(bottom: 10),
         padding: const EdgeInsets.all(14),

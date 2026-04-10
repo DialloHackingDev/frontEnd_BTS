@@ -36,7 +36,6 @@ class _DashboardScreenState extends State<DashboardScreen>
 
   bool _isLoading = true;
   String _userName = '';
-  String? _avatarUrl;
 
   @override
   void initState() {
@@ -45,7 +44,6 @@ class _DashboardScreenState extends State<DashboardScreen>
     _fadeAnim = CurvedAnimation(parent: _animCtrl, curve: Curves.easeOut);
     final user = LocalStorageService().getUser();
     _userName = user?['name'] ?? 'Leader';
-    _avatarUrl = user?['avatarUrl'];
     _fetchAll();
   }
 
@@ -227,27 +225,18 @@ class _DashboardScreenState extends State<DashboardScreen>
     );
   }
 
-  // ── AppBar avec avatar ───────────────────────────────────
+  // ── AppBar ────────────────────────────────────────────
   Widget _buildAppBar() {
-    final avatarFull = _avatarUrl != null
-        ? (_avatarUrl!.startsWith('http') ? _avatarUrl! : '${ApiService.baseUrl}$_avatarUrl')
-        : null;
-
     return SliverAppBar(
       expandedHeight: 0,
       floating: true,
       snap: true,
       backgroundColor: AppColors.navy,
       elevation: 0,
-      leading: Padding(
-        padding: const EdgeInsets.all(8),
-        child: CircleAvatar(
-          backgroundColor: AppColors.gold.withOpacity(0.15),
-          backgroundImage: avatarFull != null ? NetworkImage(avatarFull) : null,
-          onBackgroundImageError: avatarFull != null ? (_, __) {} : null,
-          child: avatarFull == null
-              ? const Icon(Icons.person_rounded, color: AppColors.gold, size: 20)
-              : null,
+      leading: Builder(
+        builder: (context) => IconButton(
+          icon: const Icon(Icons.menu, color: AppColors.white),
+          onPressed: () => Scaffold.of(context).openDrawer(),
         ),
       ),
       title: const Text('BORN TO SUCCESS',
@@ -269,7 +258,8 @@ class _DashboardScreenState extends State<DashboardScreen>
             const PopupMenuItem(value: 3, child: Text('Library')),
             const PopupMenuItem(value: 4, child: Text('Conferences')),
             const PopupMenuItem(value: 5, child: Text('Profil')),
-            const PopupMenuItem(value: 6, child: Text('Admin')),
+            if (LocalStorageService().getUserRole().toUpperCase() == 'ADMIN')
+              const PopupMenuItem(value: 6, child: Text('Admin')),
             const PopupMenuItem(value: 7, child: Text('Paramètres')),
           ],
         ),
