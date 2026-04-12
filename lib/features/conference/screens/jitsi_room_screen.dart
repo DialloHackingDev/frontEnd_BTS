@@ -2,6 +2,7 @@ import 'dart:io';
 import 'dart:convert';
 import 'dart:async';
 import 'dart:typed_data';
+import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:agora_rtc_engine/agora_rtc_engine.dart';
@@ -583,183 +584,629 @@ class _JitsiRoomScreenState extends State<JitsiRoomScreen> {
     );
   }
 
-  /// Build the conference UI - Google Meet style
+  /// Build the conference UI - Style Google Meet professionnel
   Widget _buildConference() {
     return Scaffold(
       backgroundColor: AppColors.navy,
       body: SafeArea(
-        child: Column(
+        child: Stack(
+          fit: StackFit.expand,
           children: [
-            // Header - Style Google Meet
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            // Contenu principal en colonne
+            Column(
+              children: [
+                // Header moderne avec info réunion
+                _buildMeetHeader(),
+
+                // Zone principale avec grille ou présentation
+                Expanded(
+                  child: _isScreenSharing 
+                      ? _buildPresentationView()
+                      : _remoteUids.isEmpty 
+                          ? _buildWaitingView()
+                          : _buildParticipantGrid(),
+                ),
+
+                // Barre d'emojis rapides (visible si active)
+                if (_showEmojiBar) _buildEmojiBar(),
+
+                // Barre de contrôles inférieure
+                _buildBottomControls(),
+              ],
+            ),
+
+            // Réactions flottantes (affichées au-dessus)
+            ..._buildFloatingReactions(),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Header style Google Meet
+  Widget _buildMeetHeader() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      child: Row(
+        children: [
+          // Bouton retour avec info
+          GestureDetector(
+            onTap: _showLeaveDialog,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(20),
+              ),
               child: Row(
                 children: [
-                  // Bouton retour (flèche)
-                  GestureDetector(
-                    onTap: _showLeaveDialog,
-                    child: Container(
-                      width: 40,
-                      height: 40,
-                      decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.1),
-                        shape: BoxShape.circle,
-                      ),
-                      child: const Icon(
-                        Icons.arrow_back,
-                        color: AppColors.white,
-                        size: 24,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 16),
-                  // Texte "Vous"
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.1),
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: const Text(
-                      'Vous',
-                      style: TextStyle(
-                        color: AppColors.white,
-                        fontSize: 16,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ),
-                  const Spacer(),
-                  // Icône volume
-                  GestureDetector(
-                    onTap: () {},
-                    child: Container(
-                      width: 40,
-                      height: 40,
-                      decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.1),
-                        shape: BoxShape.circle,
-                      ),
-                      child: const Icon(
-                        Icons.volume_up,
-                        color: AppColors.white,
-                        size: 24,
-                      ),
+                  const Icon(Icons.arrow_back, color: AppColors.white, size: 20),
+                  const SizedBox(width: 8),
+                  // Avatars des participants
+                  _buildParticipantAvatars(),
+                  const SizedBox(width: 8),
+                  Text(
+                    '${_remoteUids.length + 1}',
+                    style: const TextStyle(
+                      color: AppColors.white,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w500,
                     ),
                   ),
                 ],
               ),
             ),
-
-            // Zone vidéo principale (ou message si seul)
-            Expanded(
-              child: _remoteUids.isEmpty
-                  ? _buildWaitingView()
-                  : Stack(
-                      children: [
-                        // Vidéo distante (plein écran)
-                        AgoraVideoView(
-                          controller: VideoViewController.remote(
-                            rtcEngine: _engine!,
-                            canvas: VideoCanvas(uid: _remoteUids.first),
-                            connection: RtcConnection(channelId: _channelName),
-                          ),
-                        ),
-                        // Vidéo locale (coin supérieur droit)
-                        Positioned(
-                          top: 16,
-                          right: 16,
-                          child: Container(
-                            width: 120,
-                            height: 160,
-                            decoration: BoxDecoration(
-                              borderRadius: BorderRadius.circular(12),
-                              border: Border.all(color: AppColors.gold, width: 2),
-                            ),
-                            child: ClipRRect(
-                              borderRadius: BorderRadius.circular(10),
-                              child: _localVideoEnabled
-                                  ? AgoraVideoView(
-                                      controller: VideoViewController(
-                                        rtcEngine: _engine!,
-                                        canvas: const VideoCanvas(uid: 0),
-                                      ),
-                                    )
-                                  : Container(
-                                      color: AppColors.darkBlue,
-                                      child: const Center(
-                                        child: Icon(
-                                          Icons.videocam_off_rounded,
-                                          color: AppColors.grey,
-                                          size: 40,
-                                        ),
-                                      ),
-                                    ),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
+          ),
+          const Spacer(),
+          // Durée + enregistrement
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(20),
             ),
+            child: Row(
+              children: [
+                if (_isRecording) ...[
+                  const Icon(Icons.fiber_manual_record, color: Colors.red, size: 16),
+                  const SizedBox(width: 6),
+                ],
+                Text(
+                  _formatDuration(_callDuration),
+                  style: const TextStyle(
+                    color: AppColors.white,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          // Casque (sourdine)
+          GestureDetector(
+            onTap: () {},
+            child: Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.1),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(
+                Icons.headphones,
+                color: AppColors.white,
+                size: 22,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 
-            // Barre de contrôles en bas - Style Google Meet
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
-              child: SafeArea(
-                top: false,
+  /// Avatars empilés des participants
+  Widget _buildParticipantAvatars() {
+    final List<Widget> avatars = [];
+    final int count = math.min(_remoteUids.length + 1, 3);
+    
+    for (int i = 0; i < count; i++) {
+      avatars.add(
+        Positioned(
+          left: i * 12.0,
+          child: Container(
+            width: 24,
+            height: 24,
+            decoration: BoxDecoration(
+              color: i == 0 ? AppColors.gold : Colors.primaries[i % Colors.primaries.length],
+              shape: BoxShape.circle,
+              border: Border.all(color: AppColors.navy, width: 2),
+            ),
+            child: Center(
+              child: Text(
+                i == 0 ? 'V' : String.fromCharCode(65 + i),
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 10,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+    
+    return SizedBox(
+      width: 24 + (count - 1) * 12 + 4,
+      height: 24,
+      child: Stack(children: avatars),
+    );
+  }
+
+  /// Grille de participants (style salle de classe)
+  Widget _buildParticipantGrid() {
+    final totalParticipants = _remoteUids.length + 1; // +1 pour l'utilisateur local
+    final crossAxisCount = totalParticipants <= 2 ? 1 : (totalParticipants <= 4 ? 2 : 3);
+    
+    return Container(
+      padding: const EdgeInsets.all(8),
+      child: Column(
+        children: [
+          // Zone principale (premier participant ou celui qui parle)
+          if (totalParticipants > 1)
+            Expanded(
+              flex: 2,
+              child: _buildParticipantTile(
+                uid: _remoteUids.first,
+                isMainView: true,
+                name: 'Participant ${_remoteUids.first}',
+              ),
+            ),
+          
+          // Grille des autres participants
+          if (totalParticipants > 2)
+            Expanded(
+              flex: 1,
+              child: GridView.builder(
+                padding: const EdgeInsets.only(top: 8),
+                gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: crossAxisCount,
+                  crossAxisSpacing: 8,
+                  mainAxisSpacing: 8,
+                  childAspectRatio: 16 / 9,
+                ),
+                itemCount: totalParticipants - 1,
+                itemBuilder: (context, index) {
+                  if (index == 0) {
+                    // Utilisateur local
+                    return _buildLocalParticipantTile();
+                  }
+                  final uid = _remoteUids.elementAt(index - 1);
+                  return _buildParticipantTile(
+                    uid: uid,
+                    isMainView: false,
+                    name: 'Participant $uid',
+                  );
+                },
+              ),
+            )
+          else
+            // Seulement l'utilisateur local
+            Expanded(
+              child: _buildLocalParticipantTile(),
+            ),
+        ],
+      ),
+    );
+  }
+
+  /// Tuile d'un participant distant
+  Widget _buildParticipantTile({
+    required int uid,
+    required bool isMainView,
+    required String name,
+  }) {
+    return Container(
+      decoration: BoxDecoration(
+        color: AppColors.darkBlue,
+        borderRadius: BorderRadius.circular(12),
+        border: isMainView ? Border.all(color: AppColors.gold, width: 2) : null,
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(12),
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            // Vidéo ou avatar
+            AgoraVideoView(
+              controller: VideoViewController.remote(
+                rtcEngine: _engine!,
+                canvas: VideoCanvas(uid: uid),
+                connection: RtcConnection(channelId: _channelName),
+              ),
+            ),
+            
+            // Overlay avec nom
+            Positioned(
+              left: 12,
+              bottom: 12,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(
+                  color: Colors.black.withOpacity(0.6),
+                  borderRadius: BorderRadius.circular(20),
+                ),
                 child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  mainAxisSize: MainAxisSize.min,
                   children: [
-                    // Micro (rose/rouge quand coupé)
-                    _buildMeetControlButton(
-                      icon: _localAudioEnabled ? Icons.mic : Icons.mic_off,
-                      onTap: _toggleAudio,
-                      isActive: _localAudioEnabled,
-                      activeColor: Colors.white.withOpacity(0.2),
-                      inactiveColor: const Color(0xFFEF5350), // Rose/rouge
-                    ),
-                    // Caméra (gris foncé)
-                    _buildMeetControlButton(
-                      icon: _localVideoEnabled ? Icons.videocam : Icons.videocam_off,
-                      onTap: _toggleVideo,
-                      isActive: _localVideoEnabled,
-                      activeColor: Colors.white.withOpacity(0.2),
-                      inactiveColor: Colors.white.withOpacity(0.2),
-                    ),
-                    // Emoji (gris foncé)
-                    _buildMeetControlButton(
-                      icon: Icons.emoji_emotions_outlined,
-                      onTap: () {
-                        _showReactionMenu();
-                      },
-                      isActive: true,
-                      activeColor: Colors.white.withOpacity(0.2),
-                    ),
-                    // Plus d'options (gris foncé)
-                    _buildMeetControlButton(
-                      icon: Icons.more_vert,
-                      onTap: _showMoreOptions,
-                      isActive: true,
-                      activeColor: Colors.white.withOpacity(0.2),
-                    ),
-                    // Raccrocher (rouge)
-                    GestureDetector(
-                      onTap: _showLeaveDialog,
-                      child: Container(
-                        width: 56,
-                        height: 56,
-                        decoration: const BoxDecoration(
-                          color: Color(0xFFEA4335), // Rouge Google Meet
-                          shape: BoxShape.circle,
-                        ),
-                        child: const Icon(
-                          Icons.call_end,
-                          color: Colors.white,
-                          size: 28,
-                        ),
+                    const Icon(Icons.mic_off, color: Colors.white, size: 14),
+                    const SizedBox(width: 6),
+                    Text(
+                      name,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
                       ),
                     ),
                   ],
+                ),
+              ),
+            ),
+            
+            // Badge "Présentateur"
+            if (isMainView && _screenShareUid == uid)
+              Positioned(
+                top: 12,
+                left: 12,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: AppColors.gold,
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.present_to_all, color: AppColors.navy, size: 14),
+                      SizedBox(width: 6),
+                      Text(
+                        'Présente',
+                        style: TextStyle(
+                          color: AppColors.navy,
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Tuile de l'utilisateur local
+  Widget _buildLocalParticipantTile() {
+    return Container(
+      decoration: BoxDecoration(
+        color: AppColors.darkBlue,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.gold.withOpacity(0.3), width: 1),
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(12),
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            // Vidéo locale ou avatar
+            _localVideoEnabled
+                ? AgoraVideoView(
+                    controller: VideoViewController(
+                      rtcEngine: _engine!,
+                      canvas: const VideoCanvas(uid: 0),
+                    ),
+                  )
+                : _buildAvatar(name: 'Vous', imageUrl: null),
+            
+            // Overlay avec nom
+            Positioned(
+              left: 12,
+              bottom: 12,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(
+                  color: Colors.black.withOpacity(0.6),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: const Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      'Vous',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            
+            // Indicateur de statut micro
+            if (!_localAudioEnabled)
+              Positioned(
+                top: 12,
+                right: 12,
+                child: Container(
+                  width: 32,
+                  height: 32,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFEA4335),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(Icons.mic_off, color: Colors.white, size: 16),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Avatar avec image ou initiale
+  Widget _buildAvatar({required String name, String? imageUrl}) {
+    final initial = name.isNotEmpty ? name[0].toUpperCase() : '?';
+    
+    return Container(
+      color: AppColors.darkBlue,
+      child: Center(
+        child: imageUrl != null
+            ? ClipOval(
+                child: Image.network(
+                  imageUrl,
+                  width: 80,
+                  height: 80,
+                  fit: BoxFit.cover,
+                  errorBuilder: (context, error, stackTrace) {
+                    return _buildInitialAvatar(initial);
+                  },
+                ),
+              )
+            : _buildInitialAvatar(initial),
+      ),
+    );
+  }
+
+  /// Avatar avec initiale
+  Widget _buildInitialAvatar(String initial) {
+    return Container(
+      width: 80,
+      height: 80,
+      decoration: BoxDecoration(
+        color: AppColors.gold.withOpacity(0.2),
+        shape: BoxShape.circle,
+        border: Border.all(color: AppColors.gold, width: 2),
+      ),
+      child: Center(
+        child: Text(
+          initial,
+          style: const TextStyle(
+            color: AppColors.gold,
+            fontSize: 32,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Vue de présentation (partage d'écran)
+  Widget _buildPresentationView() {
+    return Container(
+      padding: const EdgeInsets.all(8),
+      child: Column(
+        children: [
+          // Zone de présentation (partage d'écran)
+          Expanded(
+            flex: 3,
+            child: Container(
+              decoration: BoxDecoration(
+                color: Colors.black,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: _screenShareUid != null
+                  ? AgoraVideoView(
+                      controller: VideoViewController.remote(
+                        rtcEngine: _engine!,
+                        canvas: VideoCanvas(uid: _screenShareUid!),
+                        connection: RtcConnection(channelId: _channelName),
+                      ),
+                    )
+                  : const Center(
+                      child: Text(
+                        'Présentation en cours...',
+                        style: TextStyle(color: Colors.white),
+                      ),
+                    ),
+            ),
+          ),
+          
+          // Barre des participants en bas
+          Container(
+            height: 100,
+            padding: const EdgeInsets.only(top: 8),
+            child: ListView.builder(
+              scrollDirection: Axis.horizontal,
+              itemCount: _remoteUids.length + 1,
+              itemBuilder: (context, index) {
+                if (index == 0) {
+                  return _buildSmallParticipantTile(uid: 0, name: 'Vous', isLocal: true);
+                }
+                final uid = _remoteUids.elementAt(index - 1);
+                return _buildSmallParticipantTile(uid: uid, name: 'P$uid', isLocal: false);
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Petite tuile pour la barre du bas
+  Widget _buildSmallParticipantTile({
+    required int uid,
+    required String name,
+    required bool isLocal,
+  }) {
+    return Container(
+      width: 140,
+      margin: const EdgeInsets.only(right: 8),
+      decoration: BoxDecoration(
+        color: AppColors.darkBlue,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: AppColors.gold.withOpacity(0.3)),
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(8),
+        child: isLocal
+            ? (_localVideoEnabled
+                ? AgoraVideoView(
+                    controller: VideoViewController(
+                      rtcEngine: _engine!,
+                      canvas: const VideoCanvas(uid: 0),
+                    ),
+                  )
+                : _buildAvatar(name: name, imageUrl: null))
+            : AgoraVideoView(
+                controller: VideoViewController.remote(
+                  rtcEngine: _engine!,
+                  canvas: VideoCanvas(uid: uid),
+                  connection: RtcConnection(channelId: _channelName),
+                ),
+              ),
+      ),
+    );
+  }
+
+  /// Barre d'emojis rapides
+  bool _showEmojiBar = false;
+  
+  Widget _buildEmojiBar() {
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+      decoration: BoxDecoration(
+        color: Colors.black.withOpacity(0.8),
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      child: SafeArea(
+        top: false,
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+          children: [
+            _buildQuickEmoji('❤️'),
+            _buildQuickEmoji('👍'),
+            _buildQuickEmoji('🎉'),
+            _buildQuickEmoji('👏'),
+            _buildQuickEmoji('😂'),
+            _buildQuickEmoji('😮'),
+            _buildQuickEmoji('😢'),
+            _buildQuickEmoji('🤔'),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildQuickEmoji(String emoji) {
+    return GestureDetector(
+      onTap: () {
+        _sendReaction(emoji);
+        setState(() => _showEmojiBar = false);
+      },
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: Colors.white.withOpacity(0.1),
+          shape: BoxShape.circle,
+        ),
+        child: Text(
+          emoji,
+          style: const TextStyle(fontSize: 24),
+        ),
+      ),
+    );
+  }
+
+  /// Contrôles du bas style Google Meet
+  Widget _buildBottomControls() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(
+        color: Colors.black.withOpacity(0.6),
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      child: SafeArea(
+        top: false,
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+          children: [
+            // Micro (rose/rouge quand coupé)
+            _buildMeetControlButton(
+              icon: _localAudioEnabled ? Icons.mic : Icons.mic_off,
+              onTap: _toggleAudio,
+              isActive: _localAudioEnabled,
+              activeColor: Colors.white.withOpacity(0.2),
+              inactiveColor: const Color(0xFFEA4335),
+            ),
+            // Caméra (gris foncé)
+            _buildMeetControlButton(
+              icon: _localVideoEnabled ? Icons.videocam : Icons.videocam_off,
+              onTap: _toggleVideo,
+              isActive: _localVideoEnabled,
+              activeColor: Colors.white.withOpacity(0.2),
+              inactiveColor: Colors.white.withOpacity(0.2),
+            ),
+            // Captions (CC)
+            _buildMeetControlButton(
+              icon: Icons.closed_caption,
+              onTap: () {},
+              isActive: false,
+              activeColor: Colors.white.withOpacity(0.2),
+            ),
+            // Emojis
+            _buildMeetControlButton(
+              icon: Icons.emoji_emotions_outlined,
+              onTap: () => setState(() => _showEmojiBar = !_showEmojiBar),
+              isActive: _showEmojiBar,
+              activeColor: AppColors.gold.withOpacity(0.3),
+            ),
+            // Plus (menu)
+            _buildMeetControlButton(
+              icon: Icons.more_vert,
+              onTap: _showGoogleMeetMenu,
+              isActive: true,
+              activeColor: Colors.white.withOpacity(0.2),
+            ),
+            // Raccrocher (rouge)
+            GestureDetector(
+              onTap: _showLeaveDialog,
+              child: Container(
+                width: 56,
+                height: 56,
+                decoration: const BoxDecoration(
+                  color: Color(0xFFEA4335),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(
+                  Icons.call_end,
+                  color: Colors.white,
+                  size: 28,
                 ),
               ),
             ),
@@ -976,7 +1423,198 @@ class _JitsiRoomScreenState extends State<JitsiRoomScreen> {
     );
   }
 
-  /// Affiche le menu "Plus d'options"
+  /// Menu style Google Meet
+  void _showGoogleMeetMenu() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.black.withOpacity(0.95),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Indicateur de drag
+              Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.grey,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              const SizedBox(height: 24),
+              // Grille d'options
+              GridView.count(
+                shrinkWrap: true,
+                crossAxisCount: 3,
+                mainAxisSpacing: 16,
+                crossAxisSpacing: 16,
+                childAspectRatio: 1,
+                children: [
+                  _buildMenuOption(
+                    icon: Icons.people,
+                    label: 'Participants',
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      _showParticipantsPanel();
+                    },
+                  ),
+                  _buildMenuOption(
+                    icon: Icons.chat_bubble,
+                    label: 'Chat',
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      _showChatPanel();
+                    },
+                  ),
+                  _buildMenuOption(
+                    icon: _isScreenSharing ? Icons.stop_screen_share : Icons.screen_share,
+                    label: _isScreenSharing ? 'Arrêter' : 'Partager',
+                    color: _isScreenSharing ? Colors.red : Colors.white,
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      _toggleScreenSharing();
+                    },
+                  ),
+                  _buildMenuOption(
+                    icon: Icons.back_hand,
+                    label: 'Lever la main',
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      _sendReaction('✋');
+                      _showSuccess('Vous avez levé la main');
+                    },
+                  ),
+                  _buildMenuOption(
+                    icon: _isRecording ? Icons.stop : Icons.fiber_manual_record,
+                    label: _isRecording ? 'Arrêter rec.' : 'Enregistrer',
+                    color: _isRecording ? Colors.red : Colors.red,
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      _toggleRecording();
+                    },
+                  ),
+                  _buildMenuOption(
+                    icon: Icons.settings,
+                    label: 'Paramètres',
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      _showSettingsPanel();
+                    },
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Widget pour une option du menu
+  Widget _buildMenuOption({
+    required IconData icon,
+    required String label,
+    required VoidCallback onTap,
+    Color color = Colors.white,
+  }) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        decoration: BoxDecoration(
+          color: Colors.white.withOpacity(0.1),
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon, color: color, size: 28),
+            const SizedBox(height: 8),
+            Text(
+              label,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: color,
+                fontSize: 12,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Toggle recording
+  void _toggleRecording() {
+    if (_isRecording) {
+      _stopRecording();
+    } else {
+      _startRecording();
+    }
+  }
+
+  /// Affiche les paramètres
+  void _showSettingsPanel() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: AppColors.navy,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.grey,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              const SizedBox(height: 20),
+              const Text(
+                'Paramètres',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 16),
+              ListTile(
+                leading: const Icon(Icons.volume_up, color: Colors.white),
+                title: const Text('Audio', style: TextStyle(color: Colors.white)),
+                trailing: const Icon(Icons.arrow_forward_ios, color: Colors.grey, size: 16),
+                onTap: () {},
+              ),
+              ListTile(
+                leading: const Icon(Icons.videocam, color: Colors.white),
+                title: const Text('Vidéo', style: TextStyle(color: Colors.white)),
+                trailing: const Icon(Icons.arrow_forward_ios, color: Colors.grey, size: 16),
+                onTap: () {},
+              ),
+              ListTile(
+                leading: const Icon(Icons.info_outline, color: Colors.white),
+                title: const Text('À propos', style: TextStyle(color: Colors.white)),
+                onTap: () {},
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Ancien menu (gardé pour compatibilité)
   void _showMoreOptions() {
     showModalBottomSheet(
       context: context,
@@ -990,7 +1628,6 @@ class _JitsiRoomScreenState extends State<JitsiRoomScreen> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              // Indicateur de drag
               Container(
                 width: 40,
                 height: 4,
@@ -1100,9 +1737,9 @@ class _JitsiRoomScreenState extends State<JitsiRoomScreen> {
                 itemCount: _remoteUids.length + 1,
                 itemBuilder: (context, index) {
                   if (index == 0) {
-                    return _buildParticipantTile('Vous (Animateur)', true, true, _localAudioEnabled, isHandRaised: _isHandRaised);
+                    return _buildParticipantListTile('Vous (Animateur)', true, true, _localAudioEnabled, isHandRaised: _isHandRaised);
                   }
-                  return _buildParticipantTile('Participant $index', false, false, true, isHandRaised: _raisedHands.contains(index));
+                  return _buildParticipantListTile('Participant $index', false, false, true, isHandRaised: _raisedHands.contains(index));
                 },
               ),
             ),
@@ -1113,7 +1750,7 @@ class _JitsiRoomScreenState extends State<JitsiRoomScreen> {
   }
 
   /// Widget pour un participant dans la liste
-  Widget _buildParticipantTile(String name, bool isMe, bool isHost, bool isUnmuted, {bool isHandRaised = false}) {
+  Widget _buildParticipantListTile(String name, bool isMe, bool isHost, bool isUnmuted, {bool isHandRaised = false}) {
     return ListTile(
       leading: Stack(
         children: [
@@ -1460,5 +2097,22 @@ class _JitsiRoomScreenState extends State<JitsiRoomScreen> {
         ],
       ),
     );
+  }
+
+  /// Construit les réactions emoji flottantes
+  List<Widget> _buildFloatingReactions() {
+    return _floatingReactions.map((reaction) {
+      return Positioned(
+        left: (reaction['x'] as double) * MediaQuery.of(context).size.width,
+        bottom: 200 + (DateTime.now().difference(reaction['time'] as DateTime).inMilliseconds / 10),
+        child: Opacity(
+          opacity: 1 - (DateTime.now().difference(reaction['time'] as DateTime).inMilliseconds / 2000).clamp(0.0, 1.0),
+          child: Text(
+            reaction['emoji'] as String,
+            style: const TextStyle(fontSize: 32),
+          ),
+        ),
+      );
+    }).toList();
   }
 }
