@@ -93,6 +93,177 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
   }
 
+  // ── Édition de l'email ──────────────────────────────────────────
+  void _showEditEmailDialog() {
+    final controller = TextEditingController(text: _user?['email'] ?? '');
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppColors.navy,
+        title: const Text('MODIFIER L\'EMAIL', style: TextStyle(color: AppColors.gold, fontWeight: FontWeight.bold)),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          keyboardType: TextInputType.emailAddress,
+          style: const TextStyle(color: AppColors.white),
+          decoration: const InputDecoration(
+            hintText: 'votre@email.com',
+            hintStyle: TextStyle(color: AppColors.grey),
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('ANNULER', style: TextStyle(color: AppColors.grey))),
+          ElevatedButton(
+            onPressed: () async {
+              Navigator.pop(ctx);
+              await _updateEmail(controller.text.trim());
+            },
+            child: const Text('SAUVEGARDER'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _updateEmail(String email) async {
+    if (email.isEmpty || !email.contains('@')) {
+      _showError('Email invalide.');
+      return;
+    }
+    try {
+      // Envoyer aussi le nom car l'API l'exige
+      final response = await _apiService.put('/profile/update', {
+        'email': email,
+        'name': _user?['name'] ?? '',
+      });
+      debugPrint('Update email response: ${response.statusCode} - ${response.body}');
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        if (data['user'] != null) {
+          // Sauvegarder dans le stockage local
+          await _storage.saveUser(data['user']);
+          // Forcer la mise à jour de l'UI avec les nouvelles données
+          if (mounted) {
+            setState(() {
+              _user = data['user'];
+            });
+          }
+          _showSuccess('Email mis à jour avec succès.');
+        } else {
+          _showError('Réponse invalide du serveur.');
+        }
+      } else {
+        final errorData = jsonDecode(response.body);
+        _showError(errorData['message'] ?? errorData['error'] ?? 'Erreur lors de la mise à jour.');
+      }
+    } catch (e) {
+      debugPrint('Update email error: $e');
+      _showError('Erreur: $e');
+    }
+  }
+
+  // ── Changement de mot de passe ──────────────────────────────────────────
+  void _showChangePasswordDialog() {
+    final currentPasswordController = TextEditingController();
+    final newPasswordController = TextEditingController();
+    final confirmPasswordController = TextEditingController();
+    
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppColors.navy,
+        title: const Text('CHANGER LE MOT DE PASSE', style: TextStyle(color: AppColors.gold, fontWeight: FontWeight.bold, fontSize: 16)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: currentPasswordController,
+              obscureText: true,
+              style: const TextStyle(color: AppColors.white),
+              decoration: const InputDecoration(
+                hintText: 'Mot de passe actuel',
+                hintStyle: TextStyle(color: AppColors.grey),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: newPasswordController,
+              obscureText: true,
+              style: const TextStyle(color: AppColors.white),
+              decoration: const InputDecoration(
+                hintText: 'Nouveau mot de passe',
+                hintStyle: TextStyle(color: AppColors.grey),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: confirmPasswordController,
+              obscureText: true,
+              style: const TextStyle(color: AppColors.white),
+              decoration: const InputDecoration(
+                hintText: 'Confirmer le mot de passe',
+                hintStyle: TextStyle(color: AppColors.grey),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('ANNULER', style: TextStyle(color: AppColors.grey))),
+          ElevatedButton(
+            onPressed: () async {
+              if (newPasswordController.text != confirmPasswordController.text) {
+                _showError('Les mots de passe ne correspondent pas.');
+                return;
+              }
+              Navigator.pop(ctx);
+              await _changePassword(
+                currentPasswordController.text,
+                newPasswordController.text,
+              );
+            },
+            child: const Text('SAUVEGARDER'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _changePassword(String currentPassword, String newPassword) async {
+    if (currentPassword.isEmpty) {
+      _showError('Veuillez entrer votre mot de passe actuel.');
+      return;
+    }
+    if (newPassword.length < 6) {
+      _showError('Le nouveau mot de passe doit contenir au moins 6 caractères.');
+      return;
+    }
+    try {
+      final response = await _apiService.put('/profile/password', {
+        'currentPassword': currentPassword,
+        'newPassword': newPassword,
+      });
+      debugPrint('Change password response: ${response.statusCode} - ${response.body}');
+      if (response.statusCode == 200) {
+        _showSuccess('Mot de passe mis à jour avec succès.');
+      } else {
+        final errorData = jsonDecode(response.body);
+        _showError(errorData['message'] ?? errorData['error'] ?? 'Erreur lors du changement de mot de passe.');
+      }
+    } catch (e) {
+      debugPrint('Change password error: $e');
+      _showError('Erreur: $e');
+    }
+  }
+
+  void _showSuccess(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: Colors.green,
+      ),
+    );
+  }
+
   // ── Upload avatar ───────────────────────────────────────────
   void _showAvatarOptions() {
     showModalBottomSheet(
@@ -214,32 +385,24 @@ class _ProfileScreenState extends State<ProfileScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('BORN TO SUCCESS'),
-        leading: Builder(
-          builder: (context) => IconButton(
-            icon: const Icon(Icons.menu),
-            onPressed: () => Scaffold.of(context).openDrawer(),
-          ),
-        ),
         actions: [
           // Menu trois points avec navigation
           PopupMenuButton<int>(
-            icon: const Icon(Icons.more_vert),
+            icon: const Icon(Icons.more_vert, color: AppColors.white),
             tooltip: 'Navigation',
+            color: AppColors.navy,
             onSelected: (index) {
-              if (index != 5 && widget.onNavigate != null) {
+              if (widget.onNavigate != null) {
                 widget.onNavigate!(index);
               }
             },
             itemBuilder: (context) => [
-              const PopupMenuItem(value: 0, child: Text('Dashboard')),
-              const PopupMenuItem(value: 1, child: Text('Goals')),
-              const PopupMenuItem(value: 2, child: Text('Planning')),
-              const PopupMenuItem(value: 3, child: Text('Library')),
-              const PopupMenuItem(value: 4, child: Text('Conferences')),
-              const PopupMenuItem(value: 5, child: Text('Profil'), enabled: false),
-              if (LocalStorageService().getUserRole().toUpperCase() == 'ADMIN')
-                const PopupMenuItem(value: 6, child: Text('Admin')),
-              const PopupMenuItem(value: 7, child: Text('Paramètres')),
+              const PopupMenuItem(value: 0, child: Text('Dashboard', style: TextStyle(color: AppColors.white))),
+              const PopupMenuItem(value: 1, child: Text('Goals', style: TextStyle(color: AppColors.white))),
+              const PopupMenuItem(value: 2, child: Text('Library', style: TextStyle(color: AppColors.white))),
+              const PopupMenuItem(value: 3, child: Text('Conferences', style: TextStyle(color: AppColors.white))),
+              const PopupMenuItem(value: 4, child: Text('Profil', style: TextStyle(color: AppColors.grey)), enabled: false),
+              const PopupMenuItem(value: 5, child: Text('Admin', style: TextStyle(color: AppColors.gold))),
             ],
           ),
         ],
@@ -337,6 +500,34 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       _user?['role'] ?? 'USER',
                       style: const TextStyle(color: AppColors.gold, fontSize: 12, fontWeight: FontWeight.bold),
                     ),
+                  ),
+                ],
+              ),
+            ),
+
+            const SizedBox(height: 20),
+
+            // ── Options de modification ──
+            Container(
+              margin: const EdgeInsets.symmetric(horizontal: 20),
+              decoration: BoxDecoration(
+                color: AppColors.darkBlue.withOpacity(0.5),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Column(
+                children: [
+                  ListTile(
+                    leading: const Icon(Icons.email, color: AppColors.gold),
+                    title: const Text('Modifier l\'email', style: TextStyle(color: AppColors.white)),
+                    trailing: const Icon(Icons.chevron_right, color: AppColors.grey),
+                    onTap: _showEditEmailDialog,
+                  ),
+                  const Divider(color: AppColors.navy, height: 1, indent: 56),
+                  ListTile(
+                    leading: const Icon(Icons.lock, color: AppColors.gold),
+                    title: const Text('Changer le mot de passe', style: TextStyle(color: AppColors.white)),
+                    trailing: const Icon(Icons.chevron_right, color: AppColors.grey),
+                    onTap: _showChangePasswordDialog,
                   ),
                 ],
               ),

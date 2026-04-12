@@ -12,11 +12,10 @@ import '../services/offline_sync_service.dart';
 import '../services/sync_service.dart';
 import '../../features/dashboard/screens/dashboard_screen.dart';
 import '../../features/goals/screens/goals_screen.dart';
-import '../../features/library/screens/library_screen.dart';
 import '../../features/conference/screens/conference_screen.dart';
-import '../../features/admin/screens/admin_dashboard_screen.dart';
+import '../../features/library/screens/library_screen.dart';
 import '../../features/profile/screens/profile_screen.dart';
-import '../../features/planning/screens/planning_screen.dart';
+import '../../features/admin/screens/admin_dashboard_screen.dart';
 import '../../features/settings/screens/settings_screen.dart';
 
 class MainLayout extends StatefulWidget {
@@ -135,7 +134,8 @@ class _MainLayoutState extends State<MainLayout> {
           _userEmail = cached['email'] ?? '';
           _userRole = newRole;
           // Réinitialiser l'index si hors limites après changement de rôle
-          final maxIndex = (newRole == 'ADMIN' ? 6 : 5);
+          // Index: 0=Dashboard, 1=Goals, 2=Library, 3=Conference, 4=Admin(si applicable)
+          final maxIndex = (newRole == 'ADMIN' ? 4 : 3);
           if (_selectedIndex > maxIndex) _selectedIndex = 0;
         });
       }
@@ -146,16 +146,11 @@ class _MainLayoutState extends State<MainLayout> {
     final pages = [
       DashboardScreen(onNavigate: _onItemTapped),
       GoalsScreen(onNavigate: _onItemTapped),
-      PlanningScreen(onNavigate: _onItemTapped),
       LibraryScreen(onNavigate: _onItemTapped),
       ConferenceScreen(onNavigate: _onItemTapped),
       ProfileScreen(onNavigate: _onItemTapped),
+      AdminDashboardScreen(onNavigate: _onItemTapped),
     ];
-    debugPrint('🔍 _pages getter - _userRole: $_userRole, isAdmin: ${_userRole.toUpperCase() == 'ADMIN'}');
-    if (_userRole.toUpperCase() == 'ADMIN') {
-      pages.add(AdminDashboardScreen(onNavigate: _onItemTapped));
-      debugPrint('👑 Admin page ajoutée - Total pages: ${pages.length}');
-    }
     return pages;
   }
   
@@ -243,11 +238,12 @@ class _MainLayoutState extends State<MainLayout> {
             ),
             if (_userRole.toUpperCase() == 'ADMIN')
               ListTile(
-                leading: const Icon(Icons.admin_panel_settings_rounded, color: AppColors.gold),
+                leading: const Icon(Icons.admin_panel_settings, color: AppColors.gold),
                 title: const Text('PANEL ADMIN', style: TextStyle(color: AppColors.gold, fontWeight: FontWeight.bold)),
-                onTap: () {
+                onTap: () async {
                   Navigator.pop(context);
-                  setState(() => _selectedIndex = 6);
+                  if (_selectedIndex == 4) return;
+                  setState(() => _selectedIndex = 4);
                 },
               ),
             ListTile(
@@ -313,22 +309,20 @@ class _MainLayoutState extends State<MainLayout> {
             final items = [
               const BottomNavigationBarItem(icon: Icon(Icons.dashboard_rounded), label: 'Dashboard'),
               const BottomNavigationBarItem(icon: Icon(Icons.emoji_events_rounded), label: 'Goals'),
-              const BottomNavigationBarItem(icon: Icon(Icons.calendar_month_rounded), label: 'Planning'),
               const BottomNavigationBarItem(icon: Icon(Icons.library_books_rounded), label: 'Library'),
               const BottomNavigationBarItem(icon: Icon(Icons.people_alt_rounded), label: 'Conferences'),
-              const BottomNavigationBarItem(icon: Icon(Icons.person_rounded), label: 'Profil'),
-              if (_userRole.toUpperCase() == 'ADMIN')
-                const BottomNavigationBarItem(icon: Icon(Icons.admin_panel_settings_rounded), label: 'Admin'),
             ];
             // Protéger contre l'index hors limites
-            final safeIndex = _selectedIndex.clamp(0, items.length - 1);
+            // Si Profile (index 4) ou Admin (index 5), ne pas sélectionner dans la bottom nav
+            final isAdmin = _selectedIndex >= items.length;
+            final safeIndex = isAdmin ? -1 : _selectedIndex;
             return BottomNavigationBar(
               items: items,
-              currentIndex: safeIndex,
+              currentIndex: safeIndex < 0 ? 0 : safeIndex,
               onTap: _onItemTapped,
               type: BottomNavigationBarType.fixed,
               backgroundColor: AppColors.darkBlue,
-              selectedItemColor: AppColors.gold,
+              selectedItemColor: isAdmin ? AppColors.grey.withOpacity(0.5) : AppColors.gold,
               unselectedItemColor: AppColors.grey.withOpacity(0.5),
               showUnselectedLabels: true,
               selectedFontSize: 12,

@@ -73,19 +73,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
             icon: const Icon(Icons.more_vert),
             tooltip: 'Navigation',
             onSelected: (index) {
-              if (index != 7 && widget.onNavigate != null) {
+              if (index != 6 && widget.onNavigate != null) {
                 widget.onNavigate!(index);
               }
             },
             itemBuilder: (context) => [
-              const PopupMenuItem(value: 0, child: Text('Dashboard')),
-              const PopupMenuItem(value: 1, child: Text('Goals')),
-              const PopupMenuItem(value: 2, child: Text('Planning')),
-              const PopupMenuItem(value: 3, child: Text('Library')),
-              const PopupMenuItem(value: 4, child: Text('Conferences')),
-              const PopupMenuItem(value: 5, child: Text('Profil')),
-              const PopupMenuItem(value: 6, child: Text('Admin')),
-              const PopupMenuItem(value: 7, child: Text('Paramètres'), enabled: false),
+              const PopupMenuItem(value: 0, child: Text('Dashboard', style: TextStyle(color: AppColors.white))),
+              const PopupMenuItem(value: 1, child: Text('Goals', style: TextStyle(color: AppColors.white))),
+              const PopupMenuItem(value: 2, child: Text('Library', style: TextStyle(color: AppColors.white))),
+              const PopupMenuItem(value: 3, child: Text('Conferences', style: TextStyle(color: AppColors.white))),
+              const PopupMenuItem(value: 4, child: Text('Profil', style: TextStyle(color: AppColors.white))),
+              const PopupMenuItem(value: 5, child: Text('Admin', style: TextStyle(color: AppColors.gold))),
+              const PopupMenuItem(value: 6, child: Text('Paramètres', style: TextStyle(color: AppColors.grey)), enabled: false),
             ],
           ),
         ],

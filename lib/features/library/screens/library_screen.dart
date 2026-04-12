@@ -228,23 +228,21 @@ class _LibraryScreenState extends State<LibraryScreen> {
         actions: [
           // Menu trois points avec navigation
           PopupMenuButton<int>(
-            icon: const Icon(Icons.more_vert),
+            icon: const Icon(Icons.more_vert, color: AppColors.white),
             tooltip: 'Navigation',
+            color: AppColors.navy,
             onSelected: (index) {
-              if (index != 3 && widget.onNavigate != null) {
+              if (index != 2 && widget.onNavigate != null) {
                 widget.onNavigate!(index);
               }
             },
             itemBuilder: (context) => [
-              const PopupMenuItem(value: 0, child: Text('Dashboard')),
-              const PopupMenuItem(value: 1, child: Text('Goals')),
-              const PopupMenuItem(value: 2, child: Text('Planning')),
-              const PopupMenuItem(value: 3, child: Text('Library'), enabled: false),
-              const PopupMenuItem(value: 4, child: Text('Conferences')),
-              const PopupMenuItem(value: 5, child: Text('Profil')),
-              if (_userRole.toUpperCase() == 'ADMIN')
-                const PopupMenuItem(value: 6, child: Text('Admin')),
-              const PopupMenuItem(value: 7, child: Text('Paramètres')),
+              const PopupMenuItem(value: 0, child: Text('Dashboard', style: TextStyle(color: AppColors.white))),
+              const PopupMenuItem(value: 1, child: Text('Goals', style: TextStyle(color: AppColors.white))),
+              const PopupMenuItem(value: 2, child: Text('Library', style: TextStyle(color: AppColors.grey)), enabled: false),
+              const PopupMenuItem(value: 3, child: Text('Conferences', style: TextStyle(color: AppColors.white))),
+              const PopupMenuItem(value: 4, child: Text('Profil', style: TextStyle(color: AppColors.white))),
+              const PopupMenuItem(value: 5, child: Text('Admin', style: TextStyle(color: AppColors.gold))),
             ],
           ),
           IconButton(
@@ -392,6 +390,118 @@ class _LibraryScreenState extends State<LibraryScreen> {
                 ),
               ],
             ),
+      ),
+      drawer: Drawer(
+        backgroundColor: AppColors.navy,
+        child: SafeArea(
+          child: Column(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(20),
+                child: Row(
+                  children: [
+                    CircleAvatar(
+                      radius: 35,
+                      backgroundColor: AppColors.gold,
+                      child: const Icon(Icons.person, color: Colors.white, size: 36),
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Utilisateur',
+                            style: TextStyle(
+                              color: AppColors.white,
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Row(
+                            children: [
+                              Container(
+                                width: 8,
+                                height: 8,
+                                decoration: const BoxDecoration(
+                                  color: Colors.green,
+                                  shape: BoxShape.circle,
+                                ),
+                              ),
+                              const SizedBox(width: 6),
+                              const Text(
+                                'En ligne',
+                                style: TextStyle(
+                                  color: AppColors.grey,
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const Divider(color: AppColors.darkBlue, height: 1),
+              const SizedBox(height: 12),
+              ListTile(
+                leading: const Icon(Icons.dashboard, color: AppColors.white),
+                title: const Text('Dashboard', style: TextStyle(color: AppColors.white, fontWeight: FontWeight.bold)),
+                onTap: () {
+                  Navigator.pop(context);
+                  widget.onNavigate?.call(0);
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.emoji_events, color: AppColors.white),
+                title: const Text('Goals', style: TextStyle(color: AppColors.white, fontWeight: FontWeight.bold)),
+                onTap: () {
+                  Navigator.pop(context);
+                  widget.onNavigate?.call(1);
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.library_books, color: AppColors.gold),
+                title: const Text('Library', style: TextStyle(color: AppColors.gold, fontWeight: FontWeight.bold)),
+                onTap: () {
+                  Navigator.pop(context);
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.people, color: AppColors.white),
+                title: const Text('Conferences', style: TextStyle(color: AppColors.white, fontWeight: FontWeight.bold)),
+                onTap: () {
+                  Navigator.pop(context);
+                  widget.onNavigate?.call(3);
+                },
+              ),
+              const Spacer(),
+              const Divider(color: AppColors.darkBlue, height: 1),
+              const SizedBox(height: 12),
+              ListTile(
+                leading: const Icon(Icons.person, color: AppColors.white),
+                title: const Text('Mon Profil', style: TextStyle(color: AppColors.white, fontWeight: FontWeight.bold)),
+                onTap: () {
+                  Navigator.pop(context);
+                  widget.onNavigate?.call(4);
+                },
+              ),
+              if (_userRole.toUpperCase() == 'ADMIN')
+                ListTile(
+                  leading: const Icon(Icons.admin_panel_settings, color: AppColors.gold),
+                  title: const Text('PANEL ADMIN', style: TextStyle(color: AppColors.gold, fontWeight: FontWeight.bold)),
+                  onTap: () {
+                    Navigator.pop(context);
+                    widget.onNavigate?.call(5);
+                  },
+                ),
+              const SizedBox(height: 20),
+            ],
+          ),
+        ),
       ),
       floatingActionButton: _userRole.toUpperCase() == 'ADMIN' 
         ? FloatingActionButton(

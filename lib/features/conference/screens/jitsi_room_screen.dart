@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'dart:convert';
 import 'dart:async';
+import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:agora_rtc_engine/agora_rtc_engine.dart';
@@ -11,11 +12,13 @@ import '../../../core/network/api_service.dart';
 class JitsiRoomScreen extends StatefulWidget {
   final String roomId;
   final String title;
+  final int? conferenceId;
 
   const JitsiRoomScreen({
     super.key,
     required this.roomId,
     required this.title,
+    this.conferenceId,
   });
 
   @override
@@ -51,6 +54,9 @@ class _JitsiRoomScreenState extends State<JitsiRoomScreen> {
   // Lever de main
   bool _isHandRaised = false;
   final Set<int> _raisedHands = {}; // Set des UIDs qui ont levé la main
+  
+  // Chat stream ID
+  int? _chatStreamId;
   
   @override
   void dispose() {
@@ -174,32 +180,6 @@ class _JitsiRoomScreenState extends State<JitsiRoomScreen> {
       ],
     );
   }
-  
-  /// Envoie une réaction emoji
-  void _sendReaction(String emoji) {
-    // Afficher localement
-    setState(() {
-      _floatingReactions.add({
-        'emoji': emoji,
-        'x': 0.5 + (0.2 * (0.5 - (DateTime.now().millisecond % 100) / 100)),
-        'y': 0.8,
-        'time': DateTime.now(),
-      });
-    });
-    
-    // Supprimer après animation
-    Future.delayed(const Duration(seconds: 2), () {
-      if (mounted) {
-        setState(() {
-          if (_floatingReactions.isNotEmpty) {
-            _floatingReactions.removeAt(0);
-          }
-        });
-      }
-    });
-    
-    // TODO: Envoyer aux autres participants via Agora
-  }
 
   @override
   void initState() {
@@ -209,6 +189,10 @@ class _JitsiRoomScreenState extends State<JitsiRoomScreen> {
 
   /// Initialise la conférence et démarre l'enregistrement automatique
   Future<void> _initConferenceAndRecording() async {
+    // Utiliser le conferenceId du widget s'il existe
+    if (widget.conferenceId != null) {
+      _conferenceId = widget.conferenceId;
+    }
     await _initAgora();
     if (_error == null && mounted) {
       await _startRecording();
@@ -218,26 +202,31 @@ class _JitsiRoomScreenState extends State<JitsiRoomScreen> {
   /// Démarre l'enregistrement automatique
   Future<void> _startRecording() async {
     try {
-      // Extraire l'ID de conférence du roomId (format: bts-{timestamp}-{random})
-      // Ou utiliser une autre méthode pour obtenir l'ID
-      final response = await ApiService().post('/conferences', {
-        'title': widget.title,
-      });
-
-      if (response.statusCode == 201) {
-        final data = jsonDecode(response.body);
-        _conferenceId = data['id'];
-
-        // Démarrer l'enregistrement Agora
-        final recordingRes = await ApiService().post('/agora/recording/start', {
-          'conferenceId': _conferenceId,
-          'channelName': _channelName,
+      // Si on a déjà un conferenceId, utiliser celui-ci
+      if (_conferenceId == null) {
+        // Créer une nouvelle conférence
+        final response = await ApiService().post('/conferences', {
+          'title': widget.title,
         });
 
-        if (recordingRes.statusCode == 200) {
-          setState(() => _isRecording = true);
-          debugPrint('🎥 Enregistrement démarré pour conférence $_conferenceId');
+        if (response.statusCode == 201) {
+          final data = jsonDecode(response.body);
+          _conferenceId = data['id'];
+        } else {
+          debugPrint('⚠️ Impossible de créer la conférence: ${response.statusCode}');
+          return;
         }
+      }
+
+      // Démarrer l'enregistrement Agora
+      final recordingRes = await ApiService().post('/agora/recording/start', {
+        'conferenceId': _conferenceId,
+        'channelName': _channelName,
+      });
+
+      if (recordingRes.statusCode == 200) {
+        setState(() => _isRecording = true);
+        debugPrint('🎥 Enregistrement démarré pour conférence $_conferenceId');
       }
     } catch (e) {
       debugPrint('⚠️ Impossible de démarrer l\'enregistrement: $e');
@@ -291,9 +280,22 @@ class _JitsiRoomScreenState extends State<JitsiRoomScreen> {
       await _engine!.startPreview();
 
       _engine!.registerEventHandler(RtcEngineEventHandler(
-        onJoinChannelSuccess: (connection, elapsed) {
+        onJoinChannelSuccess: (connection, elapsed) async {
           debugPrint('Agora: canal rejoint avec succès');
           _startCallTimer(); // Démarrer le timer de l'appel
+          
+          // Créer le data stream pour le chat (une seule fois)
+          if (_chatStreamId == null) {
+            try {
+              _chatStreamId = await _engine?.createDataStream(
+                const DataStreamConfig(syncWithAudio: false, ordered: true),
+              );
+              debugPrint('✅ Chat stream créé: $_chatStreamId');
+            } catch (e) {
+              debugPrint('❌ Erreur création stream: $e');
+            }
+          }
+          
           if (mounted) setState(() => _isInitializing = false);
         },
         onUserJoined: (connection, uid, elapsed) {
@@ -325,6 +327,22 @@ class _JitsiRoomScreenState extends State<JitsiRoomScreen> {
             if (_screenShareUid == remoteUid) {
               setState(() => _screenShareUid = null);
             }
+          }
+        },
+        onStreamMessage: (connection, remoteUid, streamId, data, length, sentTs) {
+          // Recevoir un message de chat
+          final message = String.fromCharCodes(data);
+          debugPrint('💬 Message reçu de $remoteUid: $message');
+          
+          if (mounted) {
+            setState(() {
+              _chatMessages.add({
+                'sender': remoteUid.toString(),
+                'message': message,
+                'isMe': false,
+                'timestamp': DateTime.now(),
+              });
+            });
           }
         },
       ));
@@ -369,37 +387,78 @@ class _JitsiRoomScreenState extends State<JitsiRoomScreen> {
   Future<void> _toggleScreenSharing() async {
     if (_isScreenSharing) {
       // Arrêter le partage d'écran
-      await _engine?.stopScreenCapture();
-      setState(() => _isScreenSharing = false);
+      await _stopScreenSharing();
     } else {
       // Démarrer le partage d'écran
-      try {
-        await _engine?.startScreenCapture(const ScreenCaptureParameters2(
-          captureAudio: true,
-          captureVideo: true,
-        ));
-        setState(() => _isScreenSharing = true);
+      await _startScreenSharing();
+    }
+  }
+
+  /// Démarre le partage d'écran
+  Future<void> _startScreenSharing() async {
+    try {
+      if (Platform.isAndroid) {
+        // Sur Android
+        await _engine?.startScreenCapture(
+          const ScreenCaptureParameters2(
+            captureAudio: true,
+            captureVideo: true,
+          ),
+        );
         
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('📺 Partage d\'écran activé'),
-              backgroundColor: Colors.green,
-              duration: Duration(seconds: 2),
-            ),
-          );
-        }
-      } catch (e) {
-        debugPrint('Erreur partage écran: $e');
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Erreur partage d\'écran: $e'),
-              backgroundColor: Colors.red,
-            ),
-          );
-        }
+        // Publier le flux de partage d'écran
+        await _engine?.updateChannelMediaOptions(
+          const ChannelMediaOptions(
+            publishScreenTrack: true,
+            publishCameraTrack: false,
+          ),
+        );
+        
+        setState(() {
+          _isScreenSharing = true;
+        });
+        
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('📺 Partage d\'écran démarré'),
+            backgroundColor: Colors.green,
+            duration: Duration(seconds: 2),
+          ),
+        );
+      } else if (Platform.isIOS) {
+        _showError('Le partage d\'écran nécessite iOS 11+ avec ReplayKit');
       }
+    } catch (e) {
+      debugPrint('❌ Erreur partage d\'écran: $e');
+      _showError('Impossible de démarrer le partage d\'écran');
+    }
+  }
+
+  /// Arrête le partage d'écran
+  Future<void> _stopScreenSharing() async {
+    try {
+      await _engine?.stopScreenCapture();
+      
+      // Republier la caméra
+      await _engine?.updateChannelMediaOptions(
+        const ChannelMediaOptions(
+          publishScreenTrack: false,
+          publishCameraTrack: true,
+        ),
+      );
+      
+      setState(() {
+        _isScreenSharing = false;
+      });
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Partage d\'écran arrêté'),
+          duration: Duration(seconds: 2),
+        ),
+      );
+    } catch (e) {
+      debugPrint('❌ Erreur arrêt partage: $e');
     }
   }
 
@@ -524,301 +583,395 @@ class _JitsiRoomScreenState extends State<JitsiRoomScreen> {
     );
   }
 
+  /// Build the conference UI - Google Meet style
   Widget _buildConference() {
-    return Stack(
-      children: [
-        // Vidéo distante (plein écran)
-        _remoteUids.isEmpty
-            ? Container(
-                color: AppColors.darkBlue,
-                child: const Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(Icons.person_rounded, color: AppColors.grey, size: 80),
-                      SizedBox(height: 12),
-                      Text('En attente d\'un participant...', style: TextStyle(color: AppColors.grey)),
-                    ],
-                  ),
-                ),
-              )
-            : AgoraVideoView(
-                controller: VideoViewController.remote(
-                  rtcEngine: _engine!,
-                  canvas: VideoCanvas(uid: _remoteUids.first),
-                  connection: RtcConnection(channelId: _channelName),
-                ),
-              ),
-
-        // Vidéo locale (coin supérieur droit)
-        Positioned(
-          top: 70,
-          right: 12,
-          child: Container(
-            width: 100,
-            height: 140,
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: AppColors.gold, width: 2),
-            ),
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(10),
-              child: _localVideoEnabled
-                  ? AgoraVideoView(
-                      controller: VideoViewController(
-                        rtcEngine: _engine!,
-                        canvas: const VideoCanvas(uid: 0),
-                      ),
-                    )
-                  : Container(
-                      color: AppColors.darkBlue,
-                      child: const Center(
-                        child: Icon(Icons.videocam_off_rounded, color: AppColors.grey, size: 30),
-                      ),
-                    ),
-            ),
-          ),
-        ),
-
-        // Header moderne style Meet
-        Positioned(
-          top: 0, left: 0, right: 0,
-          child: SafeArea(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+    return Scaffold(
+      backgroundColor: AppColors.navy,
+      body: SafeArea(
+        child: Column(
+          children: [
+            // Header - Style Google Meet
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
               child: Row(
                 children: [
-                  // Bouton retour
-                  _buildIconButton(
-                    Icons.arrow_back_ios_rounded,
+                  // Bouton retour (flèche)
+                  GestureDetector(
                     onTap: _showLeaveDialog,
-                    bgColor: Colors.black26,
-                  ),
-                  const SizedBox(width: 12),
-                  // Info salle
-                  Expanded(
                     child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                      width: 40,
+                      height: 40,
                       decoration: BoxDecoration(
-                        color: Colors.black26,
-                        borderRadius: BorderRadius.circular(20),
+                        color: Colors.white.withOpacity(0.1),
+                        shape: BoxShape.circle,
                       ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text(
-                            widget.title,
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.w600,
-                              fontSize: 14,
-                            ),
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                          const SizedBox(height: 2),
-                          Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Container(
-                                width: 6,
-                                height: 6,
-                                decoration: BoxDecoration(
-                                  color: _isRecording ? Colors.red : (_remoteUids.isEmpty ? Colors.orange : Colors.green),
-                                  shape: BoxShape.circle,
-                                ),
-                              ),
-                              const SizedBox(width: 6),
-                              Text(
-                                _isRecording
-                                    ? 'Enregistrement...'
-                                    : (_remoteUids.isEmpty ? 'En attente' : '${_remoteUids.length + 1} participants'),
-                                style: TextStyle(
-                                  color: Colors.white.withOpacity(0.8),
-                                  fontSize: 11,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
+                      child: const Icon(
+                        Icons.arrow_back,
+                        color: AppColors.white,
+                        size: 24,
                       ),
                     ),
                   ),
-                  const SizedBox(width: 12),
-                  // Horloge
+                  const SizedBox(width: 16),
+                  // Texte "Vous"
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                     decoration: BoxDecoration(
-                      color: Colors.black26,
+                      color: Colors.white.withOpacity(0.1),
                       borderRadius: BorderRadius.circular(20),
                     ),
-                    child: Text(
-                      _formatDuration(_callDuration),
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 13,
+                    child: const Text(
+                      'Vous',
+                      style: TextStyle(
+                        color: AppColors.white,
+                        fontSize: 16,
                         fontWeight: FontWeight.w500,
                       ),
                     ),
                   ),
-                ],
-              ),
-            ),
-          ),
-        ),
-
-        // Réactions emoji flottantes
-        ..._buildFloatingReactions(),
-        
-        // Contrôles centrés en bas style Meet
-        Positioned(
-          bottom: 30,
-          left: 16,
-          right: 16,
-          child: Container(
-            padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
-            decoration: BoxDecoration(
-              color: Colors.black.withOpacity(0.6),
-              borderRadius: BorderRadius.circular(24),
-            ),
-            child: SafeArea(
-              top: false,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  // Barre de réactions rapides
-                  SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        _buildReactionButton('❤️'),
-                        _buildReactionButton('👍'),
-                        _buildReactionButton('👏'),
-                        _buildReactionButton('😂'),
-                        _buildReactionButton('😮'),
-                        _buildReactionButton('😢'),
-                        _buildReactionButton('🤔'),
-                      ],
+                  const Spacer(),
+                  // Icône volume
+                  GestureDetector(
+                    onTap: () {},
+                    child: Container(
+                      width: 40,
+                      height: 40,
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.1),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(
+                        Icons.volume_up,
+                        color: AppColors.white,
+                        size: 24,
+                      ),
                     ),
                   ),
-                  const SizedBox(height: 12),
-                  // Barre de contrôles principaux
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                    children: [
-                      // Micro
-                      _buildControlButton(
-                        icon: _localAudioEnabled ? Icons.mic_rounded : Icons.mic_off_rounded,
-                        onTap: _toggleAudio,
-                        label: 'Micro',
-                        isActive: _localAudioEnabled,
-                      ),
-                      // Caméra
-                      _buildControlButton(
-                        icon: _localVideoEnabled ? Icons.videocam_rounded : Icons.videocam_off_rounded,
-                        onTap: _toggleVideo,
-                        label: 'Vidéo',
-                        isActive: _localVideoEnabled,
-                      ),
-                      // Lever de main
-                      _buildControlButton(
-                        icon: _isHandRaised ? Icons.front_hand : Icons.front_hand_outlined,
-                        onTap: _toggleHandRaise,
-                        label: 'Main',
-                        isActive: _isHandRaised,
-                      ),
-                      // Partage d'écran
-                      _buildControlButton(
-                        icon: _isScreenSharing ? Icons.stop_screen_share : Icons.screen_share,
-                        onTap: _toggleScreenSharing,
-                        label: 'Écran',
-                        isActive: _isScreenSharing,
-                      ),
-                      // Plus d'options
-                      _buildControlButton(
-                        icon: Icons.more_vert_rounded,
-                        onTap: _showMoreOptions,
-                        label: 'Plus',
-                        isActive: true,
-                      ),
-                      // Quitter (gros bouton rouge)
-                      GestureDetector(
-                        onTap: _showLeaveDialog,
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Container(
-                              width: 60,
-                              height: 60,
-                              decoration: BoxDecoration(
-                                color: Colors.redAccent,
-                                shape: BoxShape.circle,
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: Colors.redAccent.withOpacity(0.4),
-                                    blurRadius: 12,
-                                    spreadRadius: 2,
-                                  ),
-                                ],
-                              ),
-                              child: const Icon(
-                                Icons.call_end_rounded,
-                                color: Colors.white,
-                                size: 28,
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              'Raccrocher',
-                              style: TextStyle(
-                                color: Colors.white.withOpacity(0.8),
-                                fontSize: 11,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
                 ],
               ),
             ),
+
+            // Zone vidéo principale (ou message si seul)
+            Expanded(
+              child: _remoteUids.isEmpty
+                  ? _buildWaitingView()
+                  : Stack(
+                      children: [
+                        // Vidéo distante (plein écran)
+                        AgoraVideoView(
+                          controller: VideoViewController.remote(
+                            rtcEngine: _engine!,
+                            canvas: VideoCanvas(uid: _remoteUids.first),
+                            connection: RtcConnection(channelId: _channelName),
+                          ),
+                        ),
+                        // Vidéo locale (coin supérieur droit)
+                        Positioned(
+                          top: 16,
+                          right: 16,
+                          child: Container(
+                            width: 120,
+                            height: 160,
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(color: AppColors.gold, width: 2),
+                            ),
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(10),
+                              child: _localVideoEnabled
+                                  ? AgoraVideoView(
+                                      controller: VideoViewController(
+                                        rtcEngine: _engine!,
+                                        canvas: const VideoCanvas(uid: 0),
+                                      ),
+                                    )
+                                  : Container(
+                                      color: AppColors.darkBlue,
+                                      child: const Center(
+                                        child: Icon(
+                                          Icons.videocam_off_rounded,
+                                          color: AppColors.grey,
+                                          size: 40,
+                                        ),
+                                      ),
+                                    ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+            ),
+
+            // Barre de contrôles en bas - Style Google Meet
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+              child: SafeArea(
+                top: false,
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  children: [
+                    // Micro (rose/rouge quand coupé)
+                    _buildMeetControlButton(
+                      icon: _localAudioEnabled ? Icons.mic : Icons.mic_off,
+                      onTap: _toggleAudio,
+                      isActive: _localAudioEnabled,
+                      activeColor: Colors.white.withOpacity(0.2),
+                      inactiveColor: const Color(0xFFEF5350), // Rose/rouge
+                    ),
+                    // Caméra (gris foncé)
+                    _buildMeetControlButton(
+                      icon: _localVideoEnabled ? Icons.videocam : Icons.videocam_off,
+                      onTap: _toggleVideo,
+                      isActive: _localVideoEnabled,
+                      activeColor: Colors.white.withOpacity(0.2),
+                      inactiveColor: Colors.white.withOpacity(0.2),
+                    ),
+                    // Emoji (gris foncé)
+                    _buildMeetControlButton(
+                      icon: Icons.emoji_emotions_outlined,
+                      onTap: () {
+                        _showReactionMenu();
+                      },
+                      isActive: true,
+                      activeColor: Colors.white.withOpacity(0.2),
+                    ),
+                    // Plus d'options (gris foncé)
+                    _buildMeetControlButton(
+                      icon: Icons.more_vert,
+                      onTap: _showMoreOptions,
+                      isActive: true,
+                      activeColor: Colors.white.withOpacity(0.2),
+                    ),
+                    // Raccrocher (rouge)
+                    GestureDetector(
+                      onTap: _showLeaveDialog,
+                      child: Container(
+                        width: 56,
+                        height: 56,
+                        decoration: const BoxDecoration(
+                          color: Color(0xFFEA4335), // Rouge Google Meet
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(
+                          Icons.call_end,
+                          color: Colors.white,
+                          size: 28,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Vue quand on attend des participants (style Google Meet)
+  Widget _buildWaitingView() {
+    return Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        const Spacer(flex: 2),
+        // Icône utilisateur ou vidéo locale
+        Container(
+          width: 120,
+          height: 160,
+          decoration: BoxDecoration(
+            color: Colors.white.withOpacity(0.1),
+            borderRadius: BorderRadius.circular(16),
+          ),
+          child: _localVideoEnabled
+              ? ClipRRect(
+                  borderRadius: BorderRadius.circular(16),
+                  child: AgoraVideoView(
+                    controller: VideoViewController(
+                      rtcEngine: _engine!,
+                      canvas: const VideoCanvas(uid: 0),
+                    ),
+                  ),
+                )
+              : const Center(
+                  child: Icon(
+                    Icons.person,
+                    color: AppColors.white,
+                    size: 60,
+                  ),
+                ),
+        ),
+        const SizedBox(height: 40),
+        // Message "Vous êtes le seul participant"
+        const Text(
+          'Vous êtes le seul participant',
+          style: TextStyle(
+            color: AppColors.white,
+            fontSize: 18,
+            fontWeight: FontWeight.w500,
           ),
         ),
+        const SizedBox(height: 8),
+        // Texte explicatif
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 40),
+          child: Text(
+            'En attente d\'autres participants...',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: AppColors.white.withOpacity(0.7),
+              fontSize: 14,
+            ),
+          ),
+        ),
+        const Spacer(flex: 3),
       ],
     );
   }
 
-  /// Construit les réactions emoji flottantes
-  List<Widget> _buildFloatingReactions() {
-    return _floatingReactions.map((reaction) {
-      return Positioned(
-        left: reaction['x'] * MediaQuery.of(context).size.width,
-        bottom: 150 + (DateTime.now().difference(reaction['time']).inMilliseconds / 10),
-        child: Opacity(
-          opacity: 1 - (DateTime.now().difference(reaction['time']).inMilliseconds / 2000),
-          child: Text(
-            reaction['emoji'],
-            style: const TextStyle(fontSize: 32),
-          ),
-        ),
-      );
-    }).toList();
-  }
+  /// Bouton de contrôle style Google Meet
+  Widget _buildMeetControlButton({
+    required IconData icon,
+    required VoidCallback onTap,
+    required bool isActive,
+    required Color activeColor,
+    Color? inactiveColor,
+  }) {
+    final bgColor = isActive ? activeColor : (inactiveColor ?? activeColor);
+    final iconColor = isActive ? AppColors.white : AppColors.white;
 
-  /// Bouton de réaction emoji
-  Widget _buildReactionButton(String emoji) {
     return GestureDetector(
-      onTap: () => _sendReaction(emoji),
+      onTap: onTap,
       child: Container(
-        margin: const EdgeInsets.symmetric(horizontal: 4),
-        padding: const EdgeInsets.all(8),
+        width: 52,
+        height: 52,
         decoration: BoxDecoration(
-          color: Colors.white10,
+          color: bgColor,
           shape: BoxShape.circle,
         ),
-        child: Text(emoji, style: const TextStyle(fontSize: 20)),
+        child: Icon(
+          icon,
+          color: iconColor,
+          size: 24,
+        ),
+      ),
+    );
+  }
+
+  /// Affiche le menu des réactions emoji
+  void _showReactionMenu() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: AppColors.navy,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text(
+                'Réactions',
+                style: TextStyle(
+                  color: AppColors.white,
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 20),
+              Wrap(
+                spacing: 16,
+                runSpacing: 16,
+                alignment: WrapAlignment.center,
+                children: [
+                  _buildEmojiButton('❤️'),
+                  _buildEmojiButton('👍'),
+                  _buildEmojiButton('👏'),
+                  _buildEmojiButton('😂'),
+                  _buildEmojiButton('😮'),
+                  _buildEmojiButton('😢'),
+                  _buildEmojiButton('🤔'),
+                  _buildEmojiButton('👋'),
+                ],
+              ),
+              const SizedBox(height: 20),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Bouton emoji
+  Widget _buildEmojiButton(String emoji) {
+    return GestureDetector(
+      onTap: () {
+        _sendReaction(emoji);
+        Navigator.pop(context);
+      },
+      child: Container(
+        width: 56,
+        height: 56,
+        decoration: BoxDecoration(
+          color: Colors.white.withOpacity(0.1),
+          shape: BoxShape.circle,
+        ),
+        child: Center(
+          child: Text(
+            emoji,
+            style: const TextStyle(fontSize: 28),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Envoie une réaction emoji
+  void _sendReaction(String emoji) {
+    // Ajouter la réaction localement
+    setState(() {
+      _floatingReactions.add({
+        'emoji': emoji,
+        'x': 0.5 + (DateTime.now().millisecond % 100 - 50) / 100, // Position aléatoire
+        'time': DateTime.now(),
+      });
+    });
+    
+    // Supprimer après 2 secondes
+    Future.delayed(const Duration(seconds: 2), () {
+      if (mounted) {
+        setState(() {
+          if (_floatingReactions.isNotEmpty) {
+            _floatingReactions.removeAt(0);
+          }
+        });
+      }
+    });
+    
+    // Envoyer aux autres participants via le stream
+    if (_chatStreamId != null) {
+      try {
+        final message = jsonEncode({'type': 'reaction', 'emoji': emoji});
+        final data = Uint8List.fromList(message.codeUnits);
+        _engine?.sendStreamMessage(
+          streamId: _chatStreamId!,
+          data: data,
+          length: data.length,
+        );
+        debugPrint('✅ Réaction envoyée: $emoji');
+      } catch (e) {
+        debugPrint('❌ Erreur envoi réaction: $e');
+      }
+    }
+    
+    // Feedback visuel
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Vous avez réagi avec $emoji'),
+        duration: const Duration(seconds: 1),
+        backgroundColor: AppColors.gold.withOpacity(0.9),
       ),
     );
   }
@@ -1015,141 +1168,268 @@ class _JitsiRoomScreenState extends State<JitsiRoomScreen> {
     );
   }
 
-  /// Affiche le panneau de chat
+  /// ─── CHAT ───
+  /// Affiche le panel de chat
   void _showChatPanel() {
     showModalBottomSheet(
       context: context,
-      backgroundColor: AppColors.navy,
       isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (ctx) => DraggableScrollableSheet(
-        initialChildSize: 0.7,
-        minChildSize: 0.4,
-        maxChildSize: 0.95,
-        expand: false,
-        builder: (_, controller) => Column(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(16),
-              child: Row(
-                children: [
-                  const Text(
-                    'Chat',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setModalState) {
+          final chatController = TextEditingController();
+          final scrollController = ScrollController();
+          
+          // Fonction pour envoyer un message
+          void sendMessage() async {
+            final text = chatController.text.trim();
+            if (text.isEmpty) return;
+            
+            // Ajouter à la liste locale
+            setState(() {
+              _chatMessages.add({
+                'sender': 'Vous',
+                'message': text,
+                'isMe': true,
+                'timestamp': DateTime.now(),
+              });
+            });
+            setModalState(() {});
+            
+            // Envoyer à tous les participants via Agora Stream Message
+            if (_chatStreamId != null) {
+              try {
+                final data = Uint8List.fromList(text.codeUnits);
+                await _engine?.sendStreamMessage(
+                  streamId: _chatStreamId!,
+                  data: data,
+                  length: data.length,
+                );
+                debugPrint('✅ Message envoyé: $text');
+              } catch (e) {
+                debugPrint('❌ Erreur envoi message: $e');
+              }
+            } else {
+              debugPrint('⚠️ Stream non créé, message en local uniquement');
+            }
+            
+            chatController.clear();
+            
+            // Scroll vers le bas
+            Future.delayed(const Duration(milliseconds: 100), () {
+              if (scrollController.hasClients) {
+                scrollController.animateTo(
+                  scrollController.position.maxScrollExtent,
+                  duration: const Duration(milliseconds: 300),
+                  curve: Curves.easeOut,
+                );
+              }
+            });
+          }
+          
+          return Container(
+            height: MediaQuery.of(context).size.height * 0.7,
+            decoration: BoxDecoration(
+              color: AppColors.navy,
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+            ),
+            child: Column(
+              children: [
+                // Header
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  decoration: BoxDecoration(
+                    border: Border(
+                      bottom: BorderSide(
+                        color: AppColors.white.withOpacity(0.1),
+                      ),
                     ),
                   ),
-                  const Spacer(),
-                  IconButton(
-                    icon: const Icon(Icons.close, color: Colors.white),
-                    onPressed: () => Navigator.pop(ctx),
-                  ),
-                ],
-              ),
-            ),
-            Expanded(
-              child: _chatMessages.isEmpty
-                  ? Center(
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(Icons.chat_bubble_outline, color: Colors.grey, size: 48),
-                          SizedBox(height: 16),
-                          Text(
-                            'Aucun message',
-                            style: TextStyle(color: Colors.grey),
-                          ),
-                        ],
+                  child: Row(
+                    children: [
+                      const Text(
+                        'Messages',
+                        style: TextStyle(
+                          color: AppColors.white,
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
-                    )
-                  : ListView.builder(
-                      controller: controller,
-                      itemCount: _chatMessages.length,
-                      itemBuilder: (context, index) {
-                        final msg = _chatMessages[index];
-                        return ListTile(
-                          leading: CircleAvatar(
-                            radius: 16,
-                            backgroundColor: AppColors.gold,
-                            child: Text(
-                              msg['sender'][0].toUpperCase(),
-                              style: const TextStyle(fontSize: 12, color: Colors.black),
+                      const Spacer(),
+                      IconButton(
+                        icon: const Icon(Icons.close, color: AppColors.white),
+                        onPressed: () => Navigator.pop(ctx),
+                      ),
+                    ],
+                  ),
+                ),
+                
+                // Liste des messages
+                Expanded(
+                  child: _chatMessages.isEmpty
+                      ? Center(
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(
+                                Icons.chat_bubble_outline,
+                                size: 48,
+                                color: AppColors.white.withOpacity(0.3),
+                              ),
+                              const SizedBox(height: 16),
+                              Text(
+                                'Aucun message',
+                                style: TextStyle(
+                                  color: AppColors.white.withOpacity(0.5),
+                                  fontSize: 16,
+                                ),
+                              ),
+                            ],
+                          ),
+                        )
+                      : ListView.builder(
+                          controller: scrollController,
+                          padding: const EdgeInsets.all(16),
+                          itemCount: _chatMessages.length,
+                          itemBuilder: (context, index) {
+                            final msg = _chatMessages[index];
+                            final isMe = msg['isMe'] as bool;
+                            
+                            return Align(
+                              alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
+                              child: Container(
+                                margin: const EdgeInsets.only(bottom: 12),
+                                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                                decoration: BoxDecoration(
+                                  color: isMe
+                                      ? AppColors.gold.withOpacity(0.9)
+                                      : Colors.white.withOpacity(0.1),
+                                  borderRadius: BorderRadius.circular(16).copyWith(
+                                    bottomRight: isMe ? const Radius.circular(4) : null,
+                                    bottomLeft: !isMe ? const Radius.circular(4) : null,
+                                  ),
+                                ),
+                                constraints: BoxConstraints(
+                                  maxWidth: MediaQuery.of(context).size.width * 0.75,
+                                ),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    if (!isMe)
+                                      Text(
+                                        msg['sender'] as String,
+                                        style: TextStyle(
+                                          color: AppColors.gold,
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                                    if (!isMe) const SizedBox(height: 4),
+                                    Text(
+                                      msg['message'] as String,
+                                      style: TextStyle(
+                                        color: isMe ? AppColors.navy : AppColors.white,
+                                        fontSize: 15,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                ),
+                
+                // Zone de saisie
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: AppColors.darkBlue,
+                    border: Border(
+                      top: BorderSide(
+                        color: AppColors.white.withOpacity(0.1),
+                      ),
+                    ),
+                  ),
+                  child: SafeArea(
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            controller: chatController,
+                            style: const TextStyle(color: AppColors.white),
+                            decoration: InputDecoration(
+                              hintText: 'Écrivez un message...',
+                              hintStyle: TextStyle(
+                                color: AppColors.white.withOpacity(0.5),
+                              ),
+                              filled: true,
+                              fillColor: Colors.white.withOpacity(0.1),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(24),
+                                borderSide: BorderSide.none,
+                              ),
+                              contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 20,
+                                vertical: 14,
+                              ),
+                            ),
+                            onSubmitted: (_) => sendMessage(),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        GestureDetector(
+                          onTap: sendMessage,
+                          child: Container(
+                            width: 48,
+                            height: 48,
+                            decoration: BoxDecoration(
+                              color: AppColors.gold,
+                              shape: BoxShape.circle,
+                            ),
+                            child: const Icon(
+                              Icons.send,
+                              color: AppColors.navy,
+                              size: 24,
                             ),
                           ),
-                          title: Text(
-                            msg['sender'],
-                            style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold),
-                          ),
-                          subtitle: Text(
-                            msg['message'],
-                            style: const TextStyle(color: Colors.white70, fontSize: 13),
-                          ),
-                        );
-                      },
-                    ),
-            ),
-            // Zone de saisie
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: Colors.black12,
-                border: Border(top: BorderSide(color: Colors.white12)),
-              ),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: TextField(
-                      controller: _chatController,
-                      style: const TextStyle(color: Colors.white),
-                      decoration: InputDecoration(
-                        hintText: 'Envoyer un message...',
-                        hintStyle: TextStyle(color: Colors.grey),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(24),
-                          borderSide: BorderSide.none,
                         ),
-                        filled: true,
-                        fillColor: Colors.white10,
-                        contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                      ),
+                      ],
                     ),
                   ),
-                  SizedBox(width: 8),
-                  GestureDetector(
-                    onTap: _sendChatMessage,
-                    child: Container(
-                      padding: EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: AppColors.gold,
-                        shape: BoxShape.circle,
-                      ),
-                      child: Icon(Icons.send, color: Colors.black, size: 20),
-                    ),
-                  ),
-                ],
-              ),
+                ),
+              ],
             ),
-          ],
-        ),
+          );
+        },
       ),
     );
   }
 
-  /// Envoie un message dans le chat
-  void _sendChatMessage() {
-    if (_chatController.text.trim().isEmpty) return;
-    setState(() {
-      _chatMessages.add({
-        'sender': 'Vous',
-        'message': _chatController.text.trim(),
-        'time': DateTime.now(),
-      });
-      _chatController.clear();
-    });
+  /// Affiche une erreur
+  void _showError(String message) {
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(message),
+          backgroundColor: Colors.red,
+          duration: const Duration(seconds: 3),
+        ),
+      );
+    }
+  }
+
+  /// Affiche un message de succès
+  void _showSuccess(String message) {
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(message),
+          backgroundColor: Colors.green,
+          duration: const Duration(seconds: 2),
+        ),
+      );
+    }
   }
 
   /// Affiche les infos de la réunion
@@ -1163,20 +1443,13 @@ class _JitsiRoomScreenState extends State<JitsiRoomScreen> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Titre:', style: TextStyle(color: Colors.grey, fontSize: 12)),
-            Text(widget.title, style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 12),
-            Text('ID de la salle:', style: TextStyle(color: Colors.grey, fontSize: 12)),
-            SelectableText(
-              widget.roomId,
-              style: const TextStyle(color: Colors.white, fontFamily: 'monospace'),
-            ),
-            const SizedBox(height: 12),
-            Text('Durée:', style: TextStyle(color: Colors.grey, fontSize: 12)),
-            Text(_formatDuration(_callDuration), style: TextStyle(color: Colors.white)),
-            const SizedBox(height: 12),
-            Text('Participants:', style: TextStyle(color: Colors.grey, fontSize: 12)),
-            Text('${_remoteUids.length + 1}', style: TextStyle(color: Colors.white)),
+            Text('ID: ${widget.roomId}', style: const TextStyle(color: Colors.white70)),
+            const SizedBox(height: 8),
+            Text('Titre: ${widget.title}', style: const TextStyle(color: Colors.white70)),
+            if (_conferenceId != null)
+              Text('Conférence: $_conferenceId', style: const TextStyle(color: Colors.white70)),
+            const SizedBox(height: 8),
+            Text('Participants: ${_remoteUids.length + 1}', style: const TextStyle(color: Colors.white70)),
           ],
         ),
         actions: [

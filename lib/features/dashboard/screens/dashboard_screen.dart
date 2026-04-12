@@ -10,6 +10,7 @@ import '../../../models/event_item.dart';
 import '../../library/screens/pdf_viewer_screen.dart';
 import '../../library/screens/audio_player_screen.dart';
 import '../../library/screens/video_player_screen.dart';
+import '../../profile/screens/profile_screen.dart';
 
 class DashboardScreen extends StatefulWidget {
   final Function(int)? onNavigate;
@@ -36,15 +37,47 @@ class _DashboardScreenState extends State<DashboardScreen>
 
   bool _isLoading = true;
   String _userName = '';
+  String? _avatarUrl;
+  String _userEmail = '';
+
+  /// Construit l'URL complète de l'avatar
+  String _buildAvatarUrl(String? url) {
+    if (url == null || url.isEmpty) return '';
+    if (url.startsWith('http')) return url;
+    return '${ApiService.baseUrl}$url';
+  }
 
   @override
   void initState() {
     super.initState();
-    _animCtrl = AnimationController(vsync: this, duration: const Duration(milliseconds: 900));
+    _animCtrl = AnimationController(vsync: this, duration: const Duration(milliseconds: 800));
     _fadeAnim = CurvedAnimation(parent: _animCtrl, curve: Curves.easeOut);
-    final user = LocalStorageService().getUser();
-    _userName = user?['name'] ?? 'Leader';
+    _loadUserProfile();
     _fetchAll();
+  }
+
+  void _loadUserProfile() async {
+    final user = LocalStorageService().getUser();
+    setState(() {
+      _userName = user?['name'] ?? 'Leader';
+      _userEmail = user?['email'] ?? '';
+      _avatarUrl = user?['avatarUrl'] ?? user?['avatar_url'];
+    });
+    
+    // Charger le profil complet depuis l'API
+    try {
+      final response = await ApiService().get('/auth/profile');
+      if (response.statusCode == 200) {
+        final userData = jsonDecode(response.body);
+        setState(() {
+          _userName = userData['name'] ?? _userName;
+          _userEmail = userData['email'] ?? _userEmail;
+          _avatarUrl = userData['avatarUrl'] ?? userData['avatar_url'] ?? _avatarUrl;
+        });
+      }
+    } catch (e) {
+      debugPrint('Erreur chargement profil: $e');
+    }
   }
 
   @override
@@ -160,6 +193,164 @@ class _DashboardScreenState extends State<DashboardScreen>
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.navy,
+      drawer: Drawer(
+        backgroundColor: AppColors.navy,
+        child: Column(
+          children: [
+            // Header avec profil utilisateur
+            Container(
+              padding: const EdgeInsets.fromLTRB(20, 60, 20, 20),
+              child: Row(
+                children: [
+                  _avatarUrl != null && _avatarUrl!.isNotEmpty
+                    ? CircleAvatar(
+                        radius: 30,
+                        backgroundColor: AppColors.gold,
+                        backgroundImage: NetworkImage(_buildAvatarUrl(_avatarUrl)),
+                        child: null,
+                      )
+                    : CircleAvatar(
+                        radius: 30,
+                        backgroundColor: AppColors.gold,
+                        child: const Icon(Icons.person, color: Colors.white, size: 32),
+                      ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          _userName,
+                          style: const TextStyle(
+                            color: AppColors.white,
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Row(
+                          children: [
+                            Container(
+                              width: 8,
+                              height: 8,
+                              decoration: const BoxDecoration(
+                                color: Colors.green,
+                                shape: BoxShape.circle,
+                              ),
+                            ),
+                            const SizedBox(width: 6),
+                            Text(
+                              _userEmail,
+                              style: TextStyle(
+                                color: AppColors.grey,
+                                fontSize: 12,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const Divider(color: AppColors.darkBlue, height: 1),
+            const SizedBox(height: 20),
+            // Profil utilisateur
+            ListTile(
+              leading: Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: AppColors.darkBlue.withOpacity(0.5),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Icon(Icons.person, color: AppColors.gold, size: 24),
+              ),
+              title: const Text(
+                'MON PROFIL',
+                style: TextStyle(
+                  color: AppColors.white,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              subtitle: const Text(
+                'Modifier mes informations',
+                style: TextStyle(
+                  color: AppColors.grey,
+                  fontSize: 12,
+                ),
+              ),
+              onTap: () {
+                Navigator.pop(context);
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => ProfileScreen(onNavigate: widget.onNavigate),
+                  ),
+                );
+              },
+            ),
+            const SizedBox(height: 8),
+            // Panel Admin
+            ListTile(
+              leading: Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: AppColors.gold.withOpacity(0.2),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Icon(Icons.admin_panel_settings, color: AppColors.gold, size: 24),
+              ),
+              title: const Text(
+                'PANEL ADMIN',
+                style: TextStyle(
+                  color: AppColors.gold,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              onTap: () {
+                Navigator.pop(context);
+                widget.onNavigate?.call(5); // Index Admin (dans main_layout)
+              },
+            ),
+            const SizedBox(height: 8),
+            // Paramètres
+            ListTile(
+              leading: Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: AppColors.darkBlue.withOpacity(0.5),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Icon(Icons.settings, color: AppColors.white, size: 24),
+              ),
+              title: const Text(
+                'PARAMÈTRES',
+                style: TextStyle(
+                  color: AppColors.white,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              onTap: () {
+                Navigator.pop(context);
+                // Paramètres
+              },
+            ),
+            const Spacer(),
+            const Divider(color: AppColors.darkBlue, height: 1),
+            const SizedBox(height: 12),
+            ListTile(
+              leading: const Icon(Icons.logout, color: Colors.red),
+              title: const Text('DÉCONNEXION', style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
+              onTap: () {
+                Navigator.pop(context);
+                // Déconnexion
+              },
+            ),
+            const SizedBox(height: 20),
+          ],
+        ),
+      ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator(color: AppColors.gold))
           : FadeTransition(
@@ -252,15 +443,13 @@ class _DashboardScreenState extends State<DashboardScreen>
             }
           },
           itemBuilder: (context) => [
-            const PopupMenuItem(value: 0, child: Text('Dashboard'), enabled: false),
-            const PopupMenuItem(value: 1, child: Text('Goals')),
-            const PopupMenuItem(value: 2, child: Text('Planning')),
-            const PopupMenuItem(value: 3, child: Text('Library')),
-            const PopupMenuItem(value: 4, child: Text('Conferences')),
-            const PopupMenuItem(value: 5, child: Text('Profil')),
+            const PopupMenuItem(value: 0, child: Text('Dashboard', style: TextStyle(color: AppColors.grey)), enabled: false),
+            const PopupMenuItem(value: 1, child: Text('Goals', style: TextStyle(color: AppColors.white))),
+            const PopupMenuItem(value: 2, child: Text('Library', style: TextStyle(color: AppColors.white))),
+            const PopupMenuItem(value: 3, child: Text('Conferences', style: TextStyle(color: AppColors.white))),
+            const PopupMenuItem(value: 4, child: Text('Profil', style: TextStyle(color: AppColors.white))),
             if (LocalStorageService().getUserRole().toUpperCase() == 'ADMIN')
-              const PopupMenuItem(value: 6, child: Text('Admin')),
-            const PopupMenuItem(value: 7, child: Text('Paramètres')),
+              const PopupMenuItem(value: 5, child: Text('Admin', style: TextStyle(color: AppColors.gold))),
           ],
         ),
       ],
